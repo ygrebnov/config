@@ -10,7 +10,7 @@ import (
 
 	modellib "github.com/ygrebnov/model"
 
-	"config/streams"
+	"github.com/ygrebnov/config/streams"
 )
 
 const (
