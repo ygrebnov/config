@@ -1,5 +1,5 @@
-github.com/ygrebnov/model v0.1.0 h1:cU6Z0Z4Uv+SECv0iUP82l+lL9qHp9HedWpg8xsABkK4=
-github.com/ygrebnov/model v0.1.0/go.mod h1:iXAHE6yj2jYGBBlYOhtycVHrPVX4GqqTilIkY9XEFFs=
+github.com/ygrebnov/model v0.2.2 h1:P3dMLoXbVOR4IipiOWIcHDMWcs2H2K8pUoZt9NO2bYk=
+github.com/ygrebnov/model v0.2.2/go.mod h1:iXAHE6yj2jYGBBlYOhtycVHrPVX4GqqTilIkY9XEFFs=
 gopkg.in/check.v1 v0.0.0-20161208181325-20d25e280405 h1:yhCVgyC4o1eVCa2tZl7eS0r+SDo693bJlVdllGtEeKM=
 gopkg.in/check.v1 v0.0.0-20161208181325-20d25e280405/go.mod h1:Co6ibVJAznAaIkqp8huTwlJQCZ016jof/cbN4VW5Yz0=
 gopkg.in/yaml.v3 v3.0.1 h1:fxVm/GzAzEWqLHuvctI91KS9hhNmmWOoWu0XTYJS7CA=
