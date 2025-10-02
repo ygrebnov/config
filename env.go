@@ -1,68 +1,21 @@
+// Package config: environment variable reflection & application helpers.
+//
+// This file provides applyEnv and related utilities that walk a user config
+// struct and override fields from environment variables derived from struct
+// tags (`env:""`) or SCREAMING_SNAKE_CASE field names.
 package config
 
 import (
-	"encoding/json"
-	"errors"
-	"fmt"
 	"os"
-	"path/filepath"
 	"reflect"
 	"strconv"
 	"strings"
 	"time"
-
-	"gopkg.in/yaml.v3"
 )
 
-var (
-	ErrInaccessiblePath        = errors.New("inaccessible path")
-	ErrCannotCreateDirectories = errors.New("cannot create directories")
-)
-
-// EnsurePath ensures the directories for a file path exist and the path
-// does not already exist as a directory.
-func EnsurePath(p string) error {
-	info, err := os.Stat(p)
-	switch {
-	case err == nil:
-		if info.IsDir() {
-			return ErrInaccessiblePath
-		}
-		return nil
-	case !errors.Is(err, os.ErrNotExist):
-		return ErrInaccessiblePath
-	}
-	dir := filepath.Dir(p)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return ErrCannotCreateDirectories
-	}
-	return nil
-}
-
-func loadFromFile(path string, cfg interface{}) error {
-	if path == "" {
-		return nil
-	}
-	ext := filepath.Ext(path)
-	if ext != ".yaml" && ext != ".yml" && ext != ".json" {
-		return fmt.Errorf("%w: %s", ErrUnsupportedConfigFileType, ext)
-	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return fmt.Errorf("read %s: %w", path, err)
-	}
-	switch ext {
-	case ".json":
-		err = json.Unmarshal(data, cfg)
-	default:
-		err = yaml.Unmarshal(data, cfg)
-	}
-	if err != nil {
-		return fmt.Errorf("%w %s: %w", ErrParse, path, err)
-	}
-	return nil
-}
-
+// Environment variable application logic split from util.go for clarity.
+// applyEnv walks a struct value and applies environment variable overrides
+// based on the `env` tag or SCREAMING_SNAKE_CASE field names.
 func applyEnv(v reflect.Value, prefix string, segments []string) {
 	if v.Kind() == reflect.Pointer {
 		if v.IsNil() {
@@ -76,7 +29,7 @@ func applyEnv(v reflect.Value, prefix string, segments []string) {
 	t := v.Type()
 	for i := 0; i < v.NumField(); i++ {
 		sf := t.Field(i)
-		if sf.PkgPath != "" {
+		if sf.PkgPath != "" { // unexported
 			continue
 		}
 		tag := sf.Tag.Get(envVarTagName)
@@ -116,9 +69,6 @@ func applyEnv(v reflect.Value, prefix string, segments []string) {
 			elem := field.Type().Elem()
 			switch elem.Kind() {
 			case reflect.Struct:
-				// Allocate *struct only if there is at least one nested env var present
-				// for this segment (e.g., APP_PINNER_*). This avoids allocating when no
-				// relevant env vars are set.
 				base := buildEnvName(prefix, append(segments, seg)) + "_"
 				if hasAnyEnvWithPrefix(base) {
 					if field.IsNil() && field.CanSet() {
@@ -229,6 +179,7 @@ func hasAnyEnvWithPrefix(prefix string) bool {
 	return false
 }
 
+// toScreamingSnake converts CamelCase / PascalCase to SCREAMING_SNAKE preserving digit groups.
 func toScreamingSnake(s string) string {
 	var b strings.Builder
 	for i, r := range s {
@@ -241,8 +192,6 @@ func toScreamingSnake(s string) string {
 }
 
 func isBoundary(prev, curr rune) bool {
-	// Split words only on lower→upper case transitions (e.g., ApiKey → API_KEY).
-	// Do NOT split between letters and digits so that ApiKey2FA → API_KEY2FA.
 	return (prev >= 'a' && prev <= 'z') && (curr >= 'A' && curr <= 'Z')
 }
 
@@ -251,48 +200,4 @@ func toUpper(r rune) rune {
 		return r - 'a' + 'A'
 	}
 	return r
-}
-
-func writeToFile(path string, cfg interface{}) (retErr error) {
-	// Guard against panics from encoders (e.g., yaml on unsupported kinds like func).
-	defer func() {
-		if r := recover(); r != nil {
-			// Use current extension for context in the error message.
-			ext := filepath.Ext(path)
-			retErr = fmt.Errorf("%w as %s: %v", ErrFormat, ext, r)
-		}
-	}()
-
-	ext := filepath.Ext(path)
-	if ext != "" && ext != ".yaml" && ext != ".yml" && ext != ".json" {
-		return fmt.Errorf("%w: %s", ErrUnsupportedConfigFileType, ext)
-	}
-	var data []byte
-	var err error
-	switch ext {
-	case ".json":
-		data, err = json.MarshalIndent(cfg, "", "  ")
-	default:
-		data, err = yaml.Marshal(cfg)
-	}
-	if err != nil {
-		return fmt.Errorf("%w as %s: %w", ErrFormat, ext, err)
-	}
-	dir := filepath.Dir(path)
-	tmpFile, err := os.CreateTemp(dir, "temp-config-*"+ext)
-	if err != nil {
-		return fmt.Errorf("create temp file: %w", err)
-	}
-	defer os.Remove(tmpFile.Name())
-	if _, err := tmpFile.Write(data); err != nil {
-		tmpFile.Close()
-		return fmt.Errorf("%w %s: %w", ErrWrite, path, err)
-	}
-	if err := tmpFile.Close(); err != nil {
-		return fmt.Errorf("close temp file: %w", err)
-	}
-	if err := os.Rename(tmpFile.Name(), path); err != nil {
-		return fmt.Errorf("rename temp file to %s: %w", path, err)
-	}
-	return
 }
