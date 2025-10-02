@@ -327,11 +327,7 @@ func TestProvider_Get_TableDriven(t *testing.T) {
 					WithEnvPrefix[mCfg]("MYAPP"),
 					WithDefaultFn[mCfg](func() *mCfg { return &mCfg{} }),
 					WithModel[mCfg](func(c *mCfg) (*modellib.Model[mCfg], error) {
-						return modellib.New(
-							c,
-							modellib.WithRules[mCfg, string](modellib.BuiltinStringRules()),
-							modellib.WithRules[mCfg, int](modellib.BuiltinIntRules()),
-						)
+						return modellib.New(c)
 					}),
 				)
 				cfg, path, created, err := p.Get()
@@ -360,11 +356,7 @@ func TestProvider_Get_TableDriven(t *testing.T) {
 					WithEnvPrefix[mCfg]("MYAPP"),
 					WithDefaultFn[mCfg](func() *mCfg { return &mCfg{} }),
 					WithModel[mCfg](func(c *mCfg) (*modellib.Model[mCfg], error) {
-						return modellib.New(
-							c,
-							modellib.WithRules[mCfg, string](modellib.BuiltinStringRules()),
-							modellib.WithRules[mCfg, int](modellib.BuiltinIntRules()),
-						)
+						return modellib.New(c)
 					}),
 				)
 				_, _, _, err := p.Get()
@@ -423,11 +415,7 @@ func TestProvider_Get_TableDriven(t *testing.T) {
 					// Factory sets a NON-ZERO value for Name; model default should NOT overwrite it.
 					WithDefaultFn[mCfg](func() *mCfg { return &mCfg{Name: "factory", Port: 0} }),
 					WithModel[mCfg](func(c *mCfg) (*modellib.Model[mCfg], error) {
-						return modellib.New(
-							c,
-							modellib.WithRules[mCfg, string](modellib.BuiltinStringRules()),
-							modellib.WithRules[mCfg, int](modellib.BuiltinIntRules()),
-						)
+						return modellib.New(c)
 					}),
 				)
 				cfg, path, created, err := p.Get()
@@ -457,11 +445,7 @@ func TestProvider_Get_TableDriven(t *testing.T) {
 					// Factory leaves Name zero; model default should set it to "svc".
 					WithDefaultFn[mCfg](func() *mCfg { return &mCfg{} }),
 					WithModel[mCfg](func(c *mCfg) (*modellib.Model[mCfg], error) {
-						return modellib.New(
-							c,
-							modellib.WithRules[mCfg, string](modellib.BuiltinStringRules()),
-							modellib.WithRules[mCfg, int](modellib.BuiltinIntRules()),
-						)
+						return modellib.New(c)
 					}),
 				)
 				cfg, path, created, err := p.Get()

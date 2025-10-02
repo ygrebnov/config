@@ -287,13 +287,7 @@ p := config.New[Cfg](
   config.WithEnvPrefix[Cfg]("MYAPP"),
   config.WithPersistence[Cfg]("myapp"),
   config.WithModel(func(c *Cfg) (*modellib.Model[Cfg], error) {
-    return modellib.New(
-      c,
-      // Register builtin rules; add your custom rules as needed.
-      modellib.WithRules[Cfg, string](modellib.BuiltinStringRules()),
-      modellib.WithRules[Cfg, int](modellib.BuiltinIntRules()),
-      // You can add other rule sets here (time.Duration, etc.)
-    )
+    return modellib.New(c)
   }),
 )
 
@@ -350,11 +344,7 @@ func main() {
 			}
 		}),
 		config.WithModel(func(c *Cfg) (*modellib.Model[Cfg], error) {
-			return modellib.New(
-				c,
-				modellib.WithRules[Cfg, string](modellib.BuiltinStringRules()),
-				modellib.WithRules[Cfg, int](modellib.BuiltinIntRules()),
-			)
+			return modellib.New(c)
 		}),
 	)
 
@@ -412,14 +402,8 @@ func main() {
 		config.WithPersistence[Cfg]("myapp"),
 		config.WithEnvPrefix[Cfg]("MYAPP"),
 		config.WithStreams(streams.Slog(logger, slog.LevelInfo, slog.LevelError)),
-
 		config.WithModel(func(c *Cfg) (*modellib.Model[Cfg], error) {
-			return modellib.New(
-				c,
-				modellib.WithRules[Cfg, string](modellib.BuiltinStringRules()),
-				modellib.WithRules[Cfg, int](modellib.BuiltinIntRules()),
-				modellib.WithRules[Cfg, time.Duration](modellib.BuiltinDurationRules()),
-			)
+			return modellib.New(c)
 		}),
 	)
 
