@@ -1,6 +1,7 @@
 package config
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -18,21 +19,6 @@ const (
 	envVarTagName  = "env"
 )
 
-// Exported error categories returned by this package. These are used with wrapping
-// so callers can detect error classes using errors.Is/As.
-//   - ErrEnsureConfigDir: failure to create parent directories for a config file.
-//   - ErrUnsupportedConfigFileType: file extension is neither .yaml/.yml nor .json.
-//   - ErrParse: failure to parse an existing config file.
-//   - ErrFormat: failure to marshal a config to bytes (e.g., unsupported type).
-//   - ErrWrite: failure to write the config file to disk.
-var (
-	ErrEnsureConfigDir           = errors.New("ensure config dir")
-	ErrUnsupportedConfigFileType = errors.New("unsupported config file type")
-	ErrParse                     = errors.New("parse config file")
-	ErrFormat                    = errors.New("format config")
-	ErrWrite                     = errors.New("write to config file")
-)
-
 // Provider manages the lifecycle of a configuration object of type T.
 //
 // A Provider[T] performs the following steps exactly once (it is safe to call Get
@@ -48,19 +34,20 @@ var (
 //
 // Subsequent calls to Get() return the same pointer and metadata.
 type Provider[T any] struct {
-	mu          sync.RWMutex
-	initOnce    sync.Once
-	persist     bool
-	dirName     string
-	envPrefix   string
-	configPath  string
-	cfg         *T
-	defaultFn   func() *T
-	streams     streams.IOStreams
-	fileCreated bool
-	initErr     error
-	modelInit   ModelInit[T]
-	model       *modellib.Model[T]
+	mu           sync.RWMutex
+	initOnce     sync.Once
+	persist      bool
+	dirName      string
+	envPrefix    string
+	configPath   string
+	cfg          *T
+	defaultFn    func() *T
+	streams      streams.IOStreams
+	fileCreated  bool
+	initErr      error
+	modelInit    ModelInit[T]
+	model        *modellib.Model[T]
+	pipelineMode bool
 }
 
 // Option configures a Provider at construction time. Options are composable and
@@ -153,6 +140,13 @@ func WithModel[T any](init ModelInit[T]) Option[T] {
 	}
 }
 
+// WithPipelineMode enables the new source pipeline initialization path.
+// Experimental: when set, Provider composes internal sources (model defaults, file, env, validation)
+// using a Pipeline instead of the legacy monolithic Get implementation.
+func WithPipelineMode[T any]() Option[T] {
+	return func(m *Provider[T]) { m.pipelineMode = true }
+}
+
 // Get initializes and returns the final configuration pointer, the resolved file
 // path (if any), whether the file was created on this run, and an error if initialization
 // failed. Get is safe for concurrent use; initialization runs at most once.
@@ -161,66 +155,96 @@ func (m *Provider[T]) Get() (cfg *T, path string, fileCreated bool, err error) {
 		// 1) Construct default config instance
 		m.cfg = m.defaultFn()
 
-		// 2) Optionally construct model wrapper around config instance
-		// to apply defaults before file/env operations.
-		if m.modelInit != nil {
-			mdl, err := m.modelInit(m.cfg)
-			if err != nil {
-				m.initErr = err
-				return
-			}
-			m.model = mdl
+		// Legacy path unless pipelineMode enabled.
+		if !m.pipelineMode {
+			// 2) Optionally construct model wrapper around config instance
+			// to apply defaults before file/env operations.
+			if m.modelInit != nil {
+				mdl, err := m.modelInit(m.cfg)
+				if err != nil {
+					m.initErr = err
+					return
+				}
+				m.model = mdl
 
-			// Apply defaults before file/env, so they only fill zero values.
-			if err := m.model.SetDefaults(); err != nil {
+				// Apply defaults before file/env, so they only fill zero values.
+				if err := m.model.SetDefaults(); err != nil {
+					m.initErr = err
+					return
+				}
+			}
+
+			// 3) Resolve config path. If this fails, abort initialization; otherwise continue
+			// into file operations and env overrides.
+			if err := m.resolveConfigPath(); err != nil {
 				m.initErr = err
 				return
 			}
+
+			// 4) File operations
+			// Attempt to read from file if it exists. In persistent mode, create if missing.
+			e := loadFromFile(m.configPath, m.cfg)
+			switch {
+			case e != nil && !errors.Is(e, os.ErrNotExist):
+				m.initErr = e
+
+			case e != nil && errors.Is(e, os.ErrNotExist) && m.persist:
+				if pe := EnsurePath(m.configPath); pe != nil {
+					m.initErr = errors.Join(ErrEnsureConfigDir, pe)
+					return
+				}
+
+				if we := writeToFile(m.configPath, m.cfg); we != nil {
+					m.initErr = errors.Join(ErrWrite, we)
+					return
+				}
+				m.fileCreated = true
+				if m.streams != nil && m.streams.Out() != nil {
+					fmt.Fprintf(m.streams.Out(), "config: created new config at %s\n", m.configPath)
+				}
+			case e == nil && m.persist:
+				if m.streams != nil && m.streams.Out() != nil {
+					fmt.Fprintf(m.streams.Out(), "config: loaded from %s\n", m.configPath)
+				}
+			}
+
+			// 5) Apply environment overrides
+			m.loadFromEnv(m.cfg)
+
+			// 6) Optionally apply model validation after file/env operations.
+			if m.model != nil {
+				if err := m.model.Validate(); err != nil {
+					m.initErr = err
+					return
+				}
+			}
+			return
 		}
 
-		// 3) Resolve config path. If this fails, abort initialization; otherwise continue
-		// into file operations and env overrides.
+		// ---------------- Pipeline path ----------------
 		if err := m.resolveConfigPath(); err != nil {
 			m.initErr = err
 			return
 		}
-
-		// 4) File operations
-		// Attempt to read from file if it exists. In persistent mode, create if missing.
-		e := loadFromFile(m.configPath, m.cfg)
-		switch {
-		case e != nil && !errors.Is(e, os.ErrNotExist):
-			m.initErr = e
-
-		case e != nil && errors.Is(e, os.ErrNotExist) && m.persist:
-			if pe := EnsurePath(m.configPath); pe != nil {
-				m.initErr = errors.Join(ErrEnsureConfigDir, pe)
-				return
-			}
-
-			if we := writeToFile(m.configPath, m.cfg); we != nil {
-				m.initErr = errors.Join(ErrWrite, we)
-				return
-			}
-			m.fileCreated = true
-			if m.streams != nil && m.streams.Out() != nil {
-				fmt.Fprintf(m.streams.Out(), "config: created new config at %s\n", m.configPath)
-			}
-		case e == nil && m.persist:
-			if m.streams != nil && m.streams.Out() != nil {
-				fmt.Fprintf(m.streams.Out(), "config: loaded from %s\n", m.configPath)
-			}
+		ctx := context.Background()
+		var sources []Source[T]
+		// Model defaults source (optional)
+		if m.modelInit != nil {
+			sources = append(sources, &modelDefaultsSource[T]{provider: m})
 		}
-
-		// 5) Apply environment overrides
-		m.loadFromEnv(m.cfg)
-
-		// 6) Optionally apply model validation after file/env operations.
-		if m.model != nil {
-			if err := m.model.Validate(); err != nil {
-				m.initErr = err
-				return
-			}
+		// File source (handles create if persistent)
+		sources = append(sources, &fileSource[T]{provider: m})
+		// Env source (always overrides)
+		sources = append(sources, &envSource[T]{provider: m})
+		pipeline := &Pipeline[T]{sources: sources, finalizers: nil}
+		// Model validation finalizer if model provided
+		if m.modelInit != nil {
+			pipeline.finalizers = append(pipeline.finalizers, &modelValidationFinalizer[T]{provider: m})
+		}
+		_, err := pipeline.Execute(ctx, m.cfg)
+		if err != nil {
+			m.initErr = err
+			return
 		}
 	})
 
