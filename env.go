@@ -16,7 +16,7 @@ import (
 // Environment variable application logic split from util.go for clarity.
 // applyEnv walks a struct value and applies environment variable overrides
 // based on the `env` tag or SCREAMING_SNAKE_CASE field names.
-func applyEnv(v reflect.Value, prefix string, segments []string) {
+func applyEnv(v reflect.Value, prefix string, segments []string, strategy SetStrategy) {
 	if v.Kind() == reflect.Pointer {
 		if v.IsNil() {
 			return
@@ -44,26 +44,36 @@ func applyEnv(v reflect.Value, prefix string, segments []string) {
 		envName := buildEnvName(prefix, append(segments, seg))
 		switch field.Kind() {
 		case reflect.Struct:
-			applyEnv(field, prefix, append(segments, seg))
+			applyEnv(field, prefix, append(segments, seg), strategy)
 		case reflect.String:
 			if s, ok := getString(envName); ok && field.CanSet() {
-				field.SetString(s)
+				if strategy == SetOverride || isZero(field) {
+					field.SetString(s)
+				}
 			}
 		case reflect.Bool:
 			if b, ok := getBool(envName); ok && field.CanSet() {
-				field.SetBool(b)
+				if strategy == SetOverride || isZero(field) {
+					field.SetBool(b)
+				}
 			}
 		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 			if field.Type() == reflect.TypeOf(time.Duration(0)) {
 				if d, ok := getDuration(envName); ok && field.CanSet() {
-					field.SetInt(int64(d))
+					if strategy == SetOverride || isZero(field) {
+						field.SetInt(int64(d))
+					}
 				}
 			} else if n, ok := getInt(envName); ok && field.CanSet() {
-				field.SetInt(n)
+				if strategy == SetOverride || isZero(field) {
+					field.SetInt(n)
+				}
 			}
 		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
 			if n, ok := getInt(envName); ok && field.CanSet() && n >= 0 {
-				field.SetUint(uint64(n))
+				if strategy == SetOverride || isZero(field) {
+					field.SetUint(uint64(n))
+				}
 			}
 		case reflect.Pointer:
 			elem := field.Type().Elem()
@@ -74,47 +84,59 @@ func applyEnv(v reflect.Value, prefix string, segments []string) {
 					if field.IsNil() && field.CanSet() {
 						field.Set(reflect.New(elem))
 					}
-					applyEnv(field, prefix, append(segments, seg))
+					applyEnv(field, prefix, append(segments, seg), strategy)
 				}
 			case reflect.String:
 				if s, ok := getString(envName); ok && field.CanSet() {
 					if field.IsNil() {
 						field.Set(reflect.New(elem))
+						field.Elem().SetString(s)
+					} else if strategy == SetOverride {
+						field.Elem().SetString(s)
 					}
-					field.Elem().SetString(s)
 				}
 			case reflect.Bool:
 				if b, ok := getBool(envName); ok && field.CanSet() {
 					if field.IsNil() {
 						field.Set(reflect.New(elem))
+						field.Elem().SetBool(b)
+					} else if strategy == SetOverride {
+						field.Elem().SetBool(b)
 					}
-					field.Elem().SetBool(b)
 				}
 			case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 				if elem == reflect.TypeOf(time.Duration(0)) {
 					if d, ok := getDuration(envName); ok && field.CanSet() {
 						if field.IsNil() {
 							field.Set(reflect.New(elem))
+							field.Elem().SetInt(int64(d))
+						} else if strategy == SetOverride {
+							field.Elem().SetInt(int64(d))
 						}
-						field.Elem().SetInt(int64(d))
 					}
 				} else if n, ok := getInt(envName); ok && field.CanSet() {
 					if field.IsNil() {
 						field.Set(reflect.New(elem))
+						field.Elem().SetInt(n)
+					} else if strategy == SetOverride {
+						field.Elem().SetInt(n)
 					}
-					field.Elem().SetInt(n)
 				}
 			case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
 				if n, ok := getInt(envName); ok && field.CanSet() && n >= 0 {
 					if field.IsNil() {
 						field.Set(reflect.New(elem))
+						field.Elem().SetUint(uint64(n))
+					} else if strategy == SetOverride {
+						field.Elem().SetUint(uint64(n))
 					}
-					field.Elem().SetUint(uint64(n))
 				}
 			}
 		}
 	}
 }
+
+func isZero(v reflect.Value) bool { return v.IsZero() }
 
 func buildEnvName(prefix string, segments []string) string {
 	switch {

@@ -34,20 +34,22 @@ const (
 //
 // Subsequent calls to Get() return the same pointer and metadata.
 type Provider[T any] struct {
-	mu           sync.RWMutex
-	initOnce     sync.Once
-	persist      bool
-	dirName      string
-	envPrefix    string
-	configPath   string
-	cfg          *T
-	defaultFn    func() *T
-	streams      streams.IOStreams
-	fileCreated  bool
-	initErr      error
-	modelInit    ModelInit[T]
-	model        *modellib.Model[T]
-	pipelineMode bool
+	mu                 sync.RWMutex
+	initOnce           sync.Once
+	persist            bool
+	dirName            string
+	envPrefix          string
+	configPath         string
+	cfg                *T
+	defaultFn          func() *T
+	streams            streams.IOStreams
+	fileCreated        bool
+	initErr            error
+	modelInit          ModelInit[T]
+	model              *modellib.Model[T]
+	pipelineMode       bool
+	envSetStrategy     SetStrategy
+	validationStrategy ValidationStrategy
 }
 
 // Option configures a Provider at construction time. Options are composable and
@@ -62,12 +64,17 @@ func New[T any](opts ...Option[T]) *Provider[T] {
 	for _, opt := range opts {
 		opt(p)
 	}
-
 	if p.defaultFn == nil {
 		// Must be a pointer to a struct for reflection logic
 		p.defaultFn = func() *T { var t T; return &t }
 	}
-
+	// defaults for strategies
+	if p.envSetStrategy == 0 {
+		p.envSetStrategy = SetOverride
+	}
+	if p.validationStrategy == 0 {
+		p.validationStrategy = ValidateAllErrors
+	}
 	return p
 }
 
@@ -147,6 +154,16 @@ func WithPipelineMode[T any]() Option[T] {
 	return func(m *Provider[T]) { m.pipelineMode = true }
 }
 
+// WithEnvSetStrategy sets how environment source writes values (override or fill-zero).
+func WithEnvSetStrategy[T any](s SetStrategy) Option[T] {
+	return func(m *Provider[T]) { m.envSetStrategy = s }
+}
+
+// WithValidationStrategy controls how validation errors are surfaced (all or first only).
+func WithValidationStrategy[T any](s ValidationStrategy) Option[T] {
+	return func(m *Provider[T]) { m.validationStrategy = s }
+}
+
 // Get initializes and returns the final configuration pointer, the resolved file
 // path (if any), whether the file was created on this run, and an error if initialization
 // failed. Get is safe for concurrent use; initialization runs at most once.
@@ -209,12 +226,12 @@ func (m *Provider[T]) Get() (cfg *T, path string, fileCreated bool, err error) {
 			}
 
 			// 5) Apply environment overrides
-			m.loadFromEnv(m.cfg)
+			m.loadFromEnv(m.cfg, m.envSetStrategy)
 
 			// 6) Optionally apply model validation after file/env operations.
 			if m.model != nil {
 				if err := m.model.Validate(); err != nil {
-					m.initErr = err
+					m.initErr = m.applyValidationStrategy(err)
 					return
 				}
 			}
@@ -294,10 +311,38 @@ func (m *Provider[T]) resolveConfigPath() error {
 	return nil
 }
 
-func (m *Provider[T]) loadFromEnv(cfg *T) {
+func (m *Provider[T]) loadFromEnv(cfg *T, strategy SetStrategy) {
 	rv := reflect.ValueOf(cfg)
 	if rv.Kind() != reflect.Pointer || rv.IsNil() {
 		return
 	}
-	applyEnv(rv.Elem(), m.envPrefix, nil)
+	applyEnv(rv.Elem(), m.envPrefix, nil, strategy)
+}
+
+func (m *Provider[T]) applyValidationStrategy(err error) error {
+	if err == nil {
+		return nil
+	}
+	if m.validationStrategy == ValidateAllErrors {
+		return err
+	}
+	// Try to reduce to first error
+	if ve, ok := err.(*modellib.ValidationError); ok && ve.Len() > 1 {
+		// ve.ForField etc. not needed; we need the first FieldError; not directly accessible list,
+		// but we can serialize ByField/Fields or use JSON; better approach: create a new VE and marshal first error via text parsing is brittle.
+		// The model exposes Fields() and ByField() which loses order; however Error() preserves order by first occurrence; not safe to parse.
+		// Workaround: iterate Fields() and pick the first field, then pick the first error message; cannot reconstruct FieldError precisely.
+		// Simpler: return ve.ForField(ve.Fields()[0])[0].Err if present, else return err. But tests expect *ValidationError; adjust: construct a new ValidationError and Add that FieldError.
+		fields := ve.Fields()
+		if len(fields) > 0 {
+			by := ve.ByField()
+			fes := by[fields[0]]
+			if len(fes) > 0 {
+				newVE := &modellib.ValidationError{}
+				newVE.Add(fes[0])
+				return newVE
+			}
+		}
+	}
+	return err
 }

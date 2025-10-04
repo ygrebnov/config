@@ -87,7 +87,7 @@ func (s *envSource[T]) Load(ctx context.Context, target *T) (bool, error) { // n
 	if rv.Kind() != reflect.Pointer || rv.IsNil() {
 		return false, nil
 	}
-	applyEnv(rv.Elem(), s.provider.envPrefix, nil)
+	applyEnv(rv.Elem(), s.provider.envPrefix, nil, s.provider.envSetStrategy)
 	return true, nil // we cannot cheaply detect if any field changed without diffing; return true to indicate executed.
 }
 
@@ -101,5 +101,8 @@ func (f *modelValidationFinalizer[T]) Run(ctx context.Context, target *T) error 
 	if f.provider.model == nil {
 		return nil
 	}
-	return f.provider.model.Validate()
+	if err := f.provider.model.Validate(); err != nil {
+		return f.provider.applyValidationStrategy(err)
+	}
+	return nil
 }

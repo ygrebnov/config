@@ -4,6 +4,8 @@ import (
 	"os"
 	"testing"
 	"time"
+
+	modellib "github.com/ygrebnov/model"
 )
 
 // Build a config type that exercises all branches.
@@ -87,7 +89,7 @@ func TestLoadFromEnv_AllBranches_WithPrefix(t *testing.T) {
 		WithEnvPrefix[envCfg](prefix),
 		WithDefaultFn(func() *envCfg { return &envCfg{} }),
 	)
-	p.loadFromEnv(&c)
+	p.loadFromEnv(&c, SetOverride)
 
 	// Top-level, default SCREAMING_SNAKE
 	if c.S != "top" {
@@ -160,7 +162,7 @@ func TestLoadFromEnv_NoPrefix_FallbackNames(t *testing.T) {
 	p := New[envCfg](
 		WithDefaultFn(func() *envCfg { return &envCfg{} }),
 	)
-	p.loadFromEnv(&c)
+	p.loadFromEnv(&c, SetOverride)
 
 	if c.S != "nopfx" {
 		t.Fatalf("S (no prefix): got %q, want %q", c.S, "nopfx")
@@ -176,7 +178,7 @@ func TestLoadFromEnv_NilPointer_NoOp(t *testing.T) {
 		WithDefaultFn(func() *envCfg { return &envCfg{} }),
 	)
 	// Calling with nil must be a no-op
-	p.loadFromEnv(nil)
+	p.loadFromEnv(nil, SetOverride)
 	// Nothing to assert other than "did not panic"
 }
 
@@ -193,7 +195,7 @@ func TestLoadFromEnv_NoAllocation_WhenNoEnv(t *testing.T) {
 	} {
 		_ = os.Unsetenv(k)
 	}
-	p.loadFromEnv(&c)
+	p.loadFromEnv(&c, SetOverride)
 
 	if c.PtrInner != nil {
 		t.Fatalf("PtrInner should remain nil when no env present")
@@ -219,7 +221,7 @@ func TestLoadFromEnv_ParseFailures_DoNotAllocate(t *testing.T) {
 		WithEnvPrefix[envCfg]("APP"),
 		WithDefaultFn(func() *envCfg { return &envCfg{} }),
 	)
-	p.loadFromEnv(&c)
+	p.loadFromEnv(&c, SetOverride)
 
 	if c.PtrBool != nil || c.PtrInt != nil || c.PtrDur != nil {
 		t.Fatalf("invalid parse should not allocate pointer fields")
@@ -281,6 +283,49 @@ func TestLoadFromEnv_NonStructPointer_NoPanic(t *testing.T) {
 	// use reflection path: method expects *T; passing &z simulates non-struct *int
 	var z int
 	// This should be a no-op (applyEnv requires a struct)
-	p.loadFromEnv(&z) // should not panic
+	p.loadFromEnv(&z, SetOverride) // should not panic
 	_ = z
+}
+
+// New: Ensure SetFillZero strategy does not override non-zero fields.
+func TestEnvSetStrategy_FillZero(t *testing.T) {
+	const pfx = "APPZ"
+	t.Setenv(pfx+"_S", "envTop")
+	t.Setenv(pfx+"_INNER_INT", "99")
+	// initial cfg has non-zero S and zero Inner.I
+	c := envCfg{S: "preset"}
+	p := New[envCfg](WithEnvPrefix[envCfg](pfx), WithDefaultFn(func() *envCfg { return &envCfg{} }))
+	p.loadFromEnv(&c, SetFillZero)
+	// S should remain preset (non-zero)
+	if c.S != "preset" {
+		t.Fatalf("FillZero should not override non-zero S; got %q", c.S)
+	}
+	// Inner.I was zero, should be set
+	if c.Inner.I != 99 {
+		t.Fatalf("FillZero should set zero Inner.I; got %d", c.Inner.I)
+	}
+}
+
+// New: Ensure ValidateFirstError reduces multi-error to a single issue.
+func TestValidationStrategy_FirstError(t *testing.T) {
+	// mCfg has validate:"nonempty" and "positive,nonzero"; set both to invalid
+	t.Setenv("MX_NAME", "")
+	t.Setenv("MX_PORT", "0")
+	p := New[mCfg](
+		WithEnvPrefix[mCfg]("MX"),
+		WithDefaultFn[mCfg](func() *mCfg { return &mCfg{} }),
+		WithModel[mCfg](func(c *mCfg) (*modellib.Model[mCfg], error) { return modellib.New(c) }),
+		WithValidationStrategy[mCfg](ValidateFirstError),
+	)
+	_, _, _, err := p.Get()
+	if err == nil {
+		t.Fatalf("expected validation error")
+	}
+	ve, ok := err.(*modellib.ValidationError)
+	if !ok {
+		t.Fatalf("expected *ValidationError, got %T", err)
+	}
+	if ve.Len() != 1 {
+		t.Fatalf("expected exactly one issue, got %d", ve.Len())
+	}
 }

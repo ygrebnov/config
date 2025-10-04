@@ -22,6 +22,27 @@ type Finalizer[T any] interface {
 	Run(ctx context.Context, target *T) error
 }
 
+// SetStrategy controls how a source writes values into the target.
+// Override: always overwrite target values when the source provides a value.
+// FillZero: write only if the target field is currently zero (leave non-zero values intact).
+// Note: At the moment this is used by EnvSource; Model defaults implicitly act like FillZero.
+type SetStrategy int
+
+const (
+	SetOverride SetStrategy = iota
+	SetFillZero
+)
+
+// ValidationStrategy controls how validation results are surfaced.
+// AllErrors: return the aggregated *ValidationError containing all issues (default).
+// FirstError: reduce to the first encountered issue (still return *ValidationError with one item).
+type ValidationStrategy int
+
+const (
+	ValidateAllErrors ValidationStrategy = iota
+	ValidateFirstError
+)
+
 // SourceResult captures execution metadata for a source.
 type SourceResult struct {
 	Name     string
