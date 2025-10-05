@@ -1,5 +1,5 @@
 // Package pipeline defines the core configuration pipeline abstractions
-// (sources, finalizers, execution engine) and strategy enums used by
+// (stages engine, sources/finalizers adapters) and strategy enums used by
 // the config Provider.
 package pipeline
 
@@ -8,20 +8,52 @@ import (
 	"time"
 )
 
-// Source represents a configuration data source that can mutate the target config.
-// Implementations should perform idempotent operations (the Provider runs once).
-// Applied indicates whether any change occurred (best effort).
+// Stage represents an executable unit in the pipeline engine.
+// A stage may mutate the target and returns whether it applied any change.
+type Stage[T any] interface {
+	Name() string
+	Execute(ctx context.Context, target *T) (applied bool, err error)
+}
+
+// StageFunc is a functional adapter to implement Stage.
+type StageFunc[T any] func(ctx context.Context, target *T) (bool, error)
+
+type funcStage[T any] struct {
+	name string
+	fn   StageFunc[T]
+}
+
+func (s funcStage[T]) Name() string                                    { return s.name }
+func (s funcStage[T]) Execute(ctx context.Context, t *T) (bool, error) { return s.fn(ctx, t) }
+func NewStage[T any](name string, fn StageFunc[T]) Stage[T]            { return funcStage[T]{name: name, fn: fn} }
+
+// Backward-compatible adapters for Source/Finalizer to Stage.
+
 type Source[T any] interface {
 	Name() string
 	Load(ctx context.Context, target *T) (applied bool, err error)
 }
 
-// Finalizer performs post-source checks (e.g., validation). It must avoid
-// unbounded mutation. Any error aborts initialization.
 type Finalizer[T any] interface {
 	Name() string
 	Run(ctx context.Context, target *T) error
 }
+
+type sourceStage[T any] struct{ s Source[T] }
+
+func (w sourceStage[T]) Name() string                                    { return w.s.Name() }
+func (w sourceStage[T]) Execute(ctx context.Context, t *T) (bool, error) { return w.s.Load(ctx, t) }
+
+func StageFromSource[T any](s Source[T]) Stage[T] { return sourceStage[T]{s: s} }
+
+type finalizerStage[T any] struct{ f Finalizer[T] }
+
+func (w finalizerStage[T]) Name() string { return w.f.Name() }
+func (w finalizerStage[T]) Execute(ctx context.Context, t *T) (bool, error) {
+	return false, w.f.Run(ctx, t)
+}
+
+func StageFromFinalizer[T any](f Finalizer[T]) Stage[T] { return finalizerStage[T]{f: f} }
 
 // SetStrategy controls how a source writes values into the target.
 // Override: always overwrite target values when the source provides a value.
@@ -43,47 +75,49 @@ const (
 	ValidateFirstError
 )
 
-// SourceResult captures execution metadata for a source.
-type SourceResult struct {
+// StageResult captures execution metadata for a stage.
+type StageResult struct {
 	Name     string
 	Applied  bool
 	Duration time.Duration
 	Err      error
 }
 
-// Pipeline orchestrates ordered execution of sources then finalizers.
-// For now it is internal to the Provider; may be exposed in a builder later.
+// Pipeline orchestrates ordered execution of stages.
 type Pipeline[T any] struct {
-	sources    []Source[T]
-	finalizers []Finalizer[T]
+	stages []Stage[T]
 }
 
 // New constructs an empty Pipeline instance.
 func New[T any]() *Pipeline[T] { return &Pipeline[T]{} }
 
-// AddSources appends one or more sources in order.
+// AddStages appends one or more stages in order.
+func (p *Pipeline[T]) AddStages(st ...Stage[T]) *Pipeline[T] {
+	p.stages = append(p.stages, st...)
+	return p
+}
+
+// Backward-compatible helpers: wrap sources/finalizers as stages.
 func (p *Pipeline[T]) AddSources(srcs ...Source[T]) *Pipeline[T] {
-	p.sources = append(p.sources, srcs...)
-	return p
-}
-
-// AddFinalizers appends one or more finalizers in order.
-func (p *Pipeline[T]) AddFinalizers(fns ...Finalizer[T]) *Pipeline[T] {
-	p.finalizers = append(p.finalizers, fns...)
-	return p
-}
-
-// Execute runs all sources sequentially, then all finalizers. Stops at first error.
-func (p *Pipeline[T]) Execute(ctx context.Context, target *T) (results []SourceResult, err error) {
-	for _, s := range p.sources {
-		applied, e := s.Load(ctx, target)
-		results = append(results, SourceResult{Name: s.Name(), Applied: applied, Err: e})
-		if e != nil {
-			return results, e
-		}
+	for _, s := range srcs {
+		p.stages = append(p.stages, StageFromSource[T](s))
 	}
-	for _, f := range p.finalizers {
-		if e := f.Run(ctx, target); e != nil {
+	return p
+}
+func (p *Pipeline[T]) AddFinalizers(fns ...Finalizer[T]) *Pipeline[T] {
+	for _, f := range fns {
+		p.stages = append(p.stages, StageFromFinalizer[T](f))
+	}
+	return p
+}
+
+// Execute runs all stages sequentially and stops at first error.
+func (p *Pipeline[T]) Execute(ctx context.Context, target *T) (results []StageResult, err error) {
+	for _, st := range p.stages {
+		start := time.Now()
+		applied, e := st.Execute(ctx, target)
+		results = append(results, StageResult{Name: st.Name(), Applied: applied, Duration: time.Since(start), Err: e})
+		if e != nil {
 			return results, e
 		}
 	}
