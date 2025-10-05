@@ -97,6 +97,13 @@ func (p *Pipeline[T]) AddStages(st ...Stage[T]) *Pipeline[T] {
 	return p
 }
 
+// Stages returns a shallow copy of the current stage list for external composition.
+func (p *Pipeline[T]) Stages() []Stage[T] {
+	out := make([]Stage[T], len(p.stages))
+	copy(out, p.stages)
+	return out
+}
+
 // Backward-compatible helpers: wrap sources/finalizers as stages.
 func (p *Pipeline[T]) AddSources(srcs ...Source[T]) *Pipeline[T] {
 	for _, s := range srcs {
