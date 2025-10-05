@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"sync"
 
+	pip "github.com/ygrebnov/config/pipeline"
 	modellib "github.com/ygrebnov/model"
 
 	"github.com/ygrebnov/config/streams"
@@ -244,21 +245,62 @@ func (m *Provider[T]) Get() (cfg *T, path string, fileCreated bool, err error) {
 			return
 		}
 		ctx := context.Background()
-		var sources []Source[T]
-		// Model defaults source (optional)
+
+		var sources []pip.Source[T]
+		// Model defaults source (optional) and capture model instance for later validation.
 		if m.modelInit != nil {
-			sources = append(sources, &modelDefaultsSource[T]{provider: m})
+			sources = append(sources, &pip.ModelDefaultsSource[T]{
+				Init: func(c *T) (pip.Model, error) {
+					mdl, err := m.modelInit(c)
+					if err != nil {
+						return nil, err
+					}
+					if mdl != nil {
+						m.model = mdl
+					}
+					return mdl, nil
+				},
+			})
 		}
 		// File source (handles create if persistent)
-		sources = append(sources, &fileSource[T]{provider: m})
-		// Env source (always overrides)
-		sources = append(sources, &envSource[T]{provider: m})
-		pipeline := &Pipeline[T]{sources: sources, finalizers: nil}
+		sources = append(sources, &pip.FileSource[T]{
+			Path:         func() string { return m.configPath },
+			Persist:      func() bool { return m.persist },
+			EnsurePath:   func(p string) error { return EnsurePath(p) },
+			LoadFromFile: func(p string, t *T) error { return loadFromFile(p, t) },
+			WriteToFile:  func(p string, t *T) error { return writeToFile(p, t) },
+			Streams:      m.streams,
+			OnCreated: func(p string) {
+				m.fileCreated = true
+				if m.streams != nil && m.streams.Out() != nil {
+					fmt.Fprintf(m.streams.Out(), "config: created new config at %s\n", p)
+				}
+			},
+			OnLoaded: func(p string) {
+				if m.persist && m.streams != nil && m.streams.Out() != nil {
+					fmt.Fprintf(m.streams.Out(), "config: loaded from %s\n", p)
+				}
+			},
+		})
+		// Env source (with strategy)
+		sources = append(sources, &pip.EnvSource[T]{
+			Prefix: func() string { return m.envPrefix },
+			Apply: func(t *T, _ string, strat pip.SetStrategy) {
+				m.loadFromEnv(t, SetStrategy(strat))
+			},
+			Strategy: pip.SetStrategy(m.envSetStrategy),
+		})
+
+		pl := pip.New[T]().AddSources(sources...)
 		// Model validation finalizer if model provided
 		if m.modelInit != nil {
-			pipeline.finalizers = append(pipeline.finalizers, &modelValidationFinalizer[T]{provider: m})
+			pl = pl.AddFinalizers(&pip.ModelValidationFinalizer[T]{
+				Model:     func() pip.Model { return m.model },
+				Strategy:  pip.ValidationStrategy(m.validationStrategy),
+				ReduceErr: func(err error, _ pip.ValidationStrategy) error { return m.applyValidationStrategy(err) },
+			})
 		}
-		_, err := pipeline.Execute(ctx, m.cfg)
+		_, err := pl.Execute(ctx, m.cfg)
 		if err != nil {
 			m.initErr = err
 			return
