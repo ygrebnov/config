@@ -38,36 +38,11 @@ func (b *Builder[T]) Build(ctx context.Context, target *T) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	pl := pip.New[T]()
 	if len(b.stages) == 0 {
-		// Fallback to a default no-op pipeline composed from pre-defined stages
-		pl = pl.AddStages(
-			pip.StageFileOps[T](
-				func() string { return "" },
-				func() bool { return false },
-				func(p string) error { return EnsurePath(p) },
-				func(p string, t *T) error { return loadFromFile(p, t) },
-				func(p string, t *T) error { return writeToFile(p, t) },
-				streams.Discard(),
-				nil,
-				nil,
-			),
-			pip.StageEnv[T](
-				func() string { return "" },
-				func(t *T, _ string, strat pip.SetStrategy) {
-					applyEnv(reflect.ValueOf(t).Elem(), "", nil, SetStrategy(strat))
-				},
-				pip.SetStrategy(SetOverride),
-			),
-			pip.StageModelValidation[T](
-				func() pip.Model { return nil },
-				pip.ValidateAllErrors,
-				func(err error, _ pip.ValidationStrategy) error { return err },
-			),
-		)
-	} else {
-		pl = pl.AddStages(b.stages...)
+		// Minimal by default: do nothing when no stages are provided.
+		return nil
 	}
+	pl := pip.New[T]().AddStages(b.stages...)
 	_, err := pl.Execute(ctx, target)
 	return err
 }
@@ -103,9 +78,9 @@ func WithBuilderFileOps[T any](
 		b.stages = append(b.stages, pip.StageFileOps[T](
 			path,
 			persist,
-			func(p string) error { return EnsurePath(p) },
-			func(p string, t *T) error { return loadFromFile(p, t) },
-			func(p string, t *T) error { return writeToFile(p, t) },
+			EnsurePath,
+			loadFromFileT[T],
+			writeToFileT[T],
 			streams,
 			onCreated,
 			onLoaded,

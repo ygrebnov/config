@@ -24,17 +24,19 @@ func (m *Provider[T]) DefaultPipeline() *pip.Pipeline[T] {
 			return mdl, nil
 		}))
 	}
-	// 2) File ops via FileSource (honors persistence)
-	pl = pl.AddStages(pip.StageFileOps[T](
-		func() string { return m.configPath },
-		func() bool { return m.persist },
-		func(p string) error { return EnsurePath(p) },
-		func(p string, t *T) error { return loadFromFile(p, t) },
-		func(p string, t *T) error { return writeToFile(p, t) },
-		m.streams,
-		func(p string) { m.fileCreated = true },
-		func(string) {},
-	))
+	// 2) File ops via FileSource (honors persistence); skip when no path is resolved.
+	if m.configPath != "" {
+		pl = pl.AddStages(pip.StageFileOps[T](
+			func() string { return m.configPath },
+			func() bool { return m.persist },
+			EnsurePath,
+			loadFromFileT[T],
+			writeToFileT[T],
+			m.streams,
+			func(p string) { m.fileCreated = true },
+			func(string) {},
+		))
+	}
 	// 3) Env overrides
 	pl = pl.AddStages(pip.StageEnv[T](
 		func() string { return m.envPrefix },
