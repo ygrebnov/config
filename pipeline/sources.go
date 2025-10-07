@@ -6,6 +6,7 @@ package pipeline
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 
 	"github.com/ygrebnov/config/streams"
@@ -80,12 +81,18 @@ func (s *FileSource[T]) Load(ctx context.Context, target *T) (bool, error) {
 					return false, e
 				}
 			}
+			if s.Streams != nil && s.Streams.Out() != nil {
+				fmt.Fprintf(s.Streams.Out(), "config: created new config at %s\n", path)
+			}
 			if s.OnCreated != nil {
 				s.OnCreated(path)
 			}
 			return true, nil
 		}
 		return false, err
+	}
+	if s.Streams != nil && s.Streams.Out() != nil {
+		fmt.Fprintf(s.Streams.Out(), "config: loaded from %s\n", path)
 	}
 	if s.OnLoaded != nil {
 		s.OnLoaded(path)
