@@ -2,16 +2,13 @@ package config
 
 import (
 	"context"
-	"errors"
-	"fmt"
-	"os"
 
 	pip "github.com/ygrebnov/config/pipeline"
 )
 
 // DefaultPipeline constructs the default stage-based pipeline:
 //  1. Model.SetDefaults (if model is configured)
-//  2. File read (non-persistent semantics: read if exists; ignore missing; never create)
+//  2. File ops: load; if persistent and missing, create; if non-persistent and missing, ignore
 //  3. Environment variable overrides
 //  4. Model.Validate (if model is configured, honoring the Provider's validation strategy)
 //
@@ -36,32 +33,32 @@ func (m *Provider[T]) DefaultPipeline() *pip.Pipeline[T] {
 				},
 			}))
 		}
-		// 2) Non-persistent file read (ignore missing)
-		fileRead := pip.NewStage[T]("file-read", func(ctx context.Context, t *T) (bool, error) {
-			_ = ctx
-			if m.configPath == "" {
-				return false, nil
-			}
-			if err := loadFromFile(m.configPath, t); err != nil {
-				if errors.Is(err, os.ErrNotExist) {
-					return false, nil
+		// 2) File ops via FileSource (honors persistence)
+		stages = append(stages, pip.StageFromSource(&pip.FileSource[T]{
+			Path:         func() string { return m.configPath },
+			Persist:      func() bool { return m.persist },
+			EnsurePath:   func(p string) error { return EnsurePath(p) },
+			LoadFromFile: func(p string, t *T) error { return loadFromFile(p, t) },
+			WriteToFile:  func(p string, t *T) error { return writeToFile(p, t) },
+			Streams:      m.streams,
+			OnCreated: func(p string) {
+				m.fileCreated = true
+				if m.streams != nil && m.streams.Out() != nil {
+					_, _ = m.streams.Out().Write([]byte("config: created new config at " + p + "\n"))
 				}
-				return false, err
-			}
-			// In non-persistent default pipeline we may still log if desired.
-			if m.persist && m.streams != nil && m.streams.Out() != nil {
-				fmt.Fprintf(m.streams.Out(), "config: loaded from %s\n", m.configPath)
-			}
-			return true, nil
-		})
-		stages = append(stages, fileRead)
+			},
+			OnLoaded: func(p string) {
+				if m.persist && m.streams != nil && m.streams.Out() != nil {
+					_, _ = m.streams.Out().Write([]byte("config: loaded from " + p + "\n"))
+				}
+			},
+		}))
 		// 3) Env overrides
-		env := pip.NewStage[T]("env", func(ctx context.Context, t *T) (bool, error) {
+		stages = append(stages, pip.NewStage[T]("env", func(ctx context.Context, t *T) (bool, error) {
 			_ = ctx
 			m.loadFromEnv(t, m.envSetStrategy)
 			return true, nil
-		})
-		stages = append(stages, env)
+		}))
 		// 4) Model validation (optional)
 		if m.modelInit != nil {
 			stages = append(stages, pip.StageFromFinalizer(&pip.ModelValidationFinalizer[T]{
