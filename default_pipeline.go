@@ -40,9 +40,6 @@ func (m *Provider[T]) DefaultPipeline() *pip.Pipeline[T] {
 	// 3) Env overrides
 	pl = pl.AddStages(pip.StageEnv[T](
 		func() string { return m.envPrefix },
-		func(t *T, _ string, strat pip.SetStrategy) {
-			m.loadFromEnv(t, SetStrategy(strat))
-		},
 		pip.SetStrategy(m.envSetStrategy),
 	))
 	// 4) Model validation (optional)

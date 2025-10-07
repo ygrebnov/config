@@ -2,7 +2,6 @@ package config
 
 import (
 	"context"
-	"reflect"
 	"sync"
 
 	modellib "github.com/ygrebnov/model"
@@ -93,10 +92,6 @@ func WithBuilderEnv[T any](prefix string, strategy SetStrategy) BuilderOption[T]
 	return func(b *Builder[T]) {
 		b.stages = append(b.stages, pip.StageEnv[T](
 			func() string { return prefix },
-			func(t *T, _ string, strat pip.SetStrategy) {
-				// Bridge pipeline.SetStrategy to config.SetStrategy
-				applyEnv(reflect.ValueOf(t).Elem(), prefix, nil, SetStrategy(strat))
-			},
 			pip.SetStrategy(strategy),
 		))
 	}

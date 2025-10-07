@@ -54,15 +54,13 @@ func StageFileOps[T any](
 	})
 }
 
-// StageEnv applies environment overrides using Apply with the provided prefix and strategy.
+// StageEnv applies environment overrides using internal reflection logic with the provided prefix and strategy.
 func StageEnv[T any](
 	prefix func() string,
-	apply func(*T, string, SetStrategy),
 	strategy SetStrategy,
 ) Stage[T] {
 	return StageFromSource(&EnvSource[T]{
 		Prefix:   prefix,
-		Apply:    apply,
 		Strategy: strategy,
 	})
 }

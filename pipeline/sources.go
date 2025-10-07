@@ -100,10 +100,21 @@ func (s *FileSource[T]) Load(ctx context.Context, target *T) (bool, error) {
 	return true, nil
 }
 
-// EnvSource applies environment overrides using Apply with the provided prefix and strategy.
+// envApplyFunc is the type of the function that applies environment variables.
+type envApplyFunc func(target any, prefix string, strategy SetStrategy)
+
+// envApply is the package-level variable that holds the environment applying function.
+// It is set by the config package at init time to avoid import cycles.
+var envApply envApplyFunc
+
+// SetEnvApply registers the environment application function.
+func SetEnvApply(fn envApplyFunc) {
+	envApply = fn
+}
+
+// EnvSource applies environment overrides using the registered envApply with the provided prefix and strategy.
 type EnvSource[T any] struct {
 	Prefix   func() string
-	Apply    func(*T, string, SetStrategy)
 	Strategy SetStrategy
 }
 
@@ -111,14 +122,14 @@ func (s *EnvSource[T]) Name() string { return "env" }
 
 func (s *EnvSource[T]) Load(ctx context.Context, target *T) (bool, error) {
 	_ = ctx
-	if s == nil || target == nil || s.Apply == nil {
+	if s == nil || target == nil || envApply == nil {
 		return false, nil
 	}
 	prefix := ""
 	if s.Prefix != nil {
 		prefix = s.Prefix()
 	}
-	s.Apply(target, prefix, s.Strategy)
+	envApply(target, prefix, s.Strategy)
 	return true, nil
 }
 
