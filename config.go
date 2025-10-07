@@ -85,6 +85,30 @@ func New[T any](opts ...Option[T]) *Provider[T] {
 	return p
 }
 
+// NewPipeline constructs a Provider in pipeline mode. It accepts streams and an
+// optional list of stages to execute. When stages are provided, they are used
+// as-is; otherwise the Provider will execute its DefaultPipeline().
+//
+// Intentionally, NewPipeline does not accept general Provider options. The
+// expectation is that customization (env prefix, persistence, model defaults
+// and validation, etc.) is expressed via stages. Streams are accepted here to
+// keep user-facing messages wired without forcing a custom stage.
+func NewPipeline[T any](s streams.IOStreams, stages ...pip.Stage[T]) *Provider[T] {
+	p := &Provider[T]{
+		pipelineMode: true,
+		streams:      s,
+		stages:       nil,
+	}
+	if len(stages) > 0 {
+		p.stages = stages
+	}
+	// Initialize factory and default strategies
+	p.defaultFn = func() *T { var t T; return &t }
+	p.envSetStrategy = SetOverride
+	p.validationStrategy = ValidateAllErrors
+	return p
+}
+
 // WithPersistence enables reading/writing the config file under a directory
 // named `dirName` inside the OS user config directory (e.g. XDG_CONFIG_HOME/<dirName>/config.yml).
 // The provider will attempt to create the file with defaults when it does not exist.
