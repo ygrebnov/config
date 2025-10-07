@@ -9,6 +9,6 @@ test:
 	@go tool cover -html=$(COVERAGE_PATH)coverage.txt -o $(COVERAGE_PATH)coverage.html
 
 bench:
-	@go test -bench=. -run=^$
+	@go test -bench=. -benchmem -run=^$
 
 .PHONY: test

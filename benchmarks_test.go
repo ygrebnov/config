@@ -361,3 +361,106 @@ func BenchmarkBuilder_Model_WithEnv(b *testing.B) {
 		sinkModelCfg = &cfg
 	}
 }
+
+// Full benchmark: medium config + existing config file + model + env overrides
+func BenchmarkFull(b *testing.B) {
+	const pfx = "BM"
+	// Create a temp config file with base values using struct field names for broad decoder compatibility.
+	baseFile := func(b *testing.B) string {
+		b.Helper()
+		td := b.TempDir()
+		path := filepath.Join(td, "config.yaml")
+		content := "" +
+			"Name: fromfile\n" +
+			"Port: 8082\n" +
+			"Debug: false\n" +
+			"Timeout: 1s\n" +
+			"RateLimit:\n" +
+			"  MaxConn: 100\n" +
+			"  Window: 4s\n" +
+			"DB:\n" +
+			"  Host: 127.0.0.1\n" +
+			"  Port: 5432\n" +
+			"  User: fileuser\n" +
+			"  SSL: false\n" +
+			"Tag: filetag\n" +
+			"MaxJobs: 8\n" +
+			"Delay: 500ms\n"
+		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+			b.Fatalf("write: %v", err)
+		}
+		return path
+	}
+	// Seed env overrides covering a broad set of fields
+	seedEnv := func(b *testing.B) {
+		b.Helper()
+		b.Setenv(pfx+"_CONFIG_PATH", "")
+		b.Setenv(pfx+"_NAME", "fromenv")
+		b.Setenv(pfx+"_PORT", "9090")
+		b.Setenv(pfx+"_DEBUG", "true")
+		b.Setenv(pfx+"_TIMEOUT", "250ms")
+		b.Setenv(pfx+"_RATELIMIT_MAXCONN", "512") // matches field name MaxConn
+		b.Setenv(pfx+"_RATELIMIT_WINDOW", "2s")
+		b.Setenv(pfx+"_DB_HOST", "10.0.0.1")
+		b.Setenv(pfx+"_DB_PORT", "15432")
+		b.Setenv(pfx+"_DB_USER", "envuser")
+		b.Setenv(pfx+"_DB_SSL", "true")
+		b.Setenv(pfx+"_TAG", "v1")
+		b.Setenv(pfx+"_MAXJOBS", "64") // matches field name MaxJobs
+		b.Setenv(pfx+"_DELAY", "75ms")
+	}
+
+	b.ReportAllocs()
+	path := baseFile(b)
+	seedEnv(b)
+
+	b.Run("Provider_Legacy", func(b *testing.B) {
+		b.ReportAllocs()
+		b.Setenv(pfx+"_CONFIG_PATH", path)
+		for i := 0; i < b.N; i++ {
+			p := New[mediumCfg](
+				WithEnvPrefix[mediumCfg](pfx),
+				WithModel[mediumCfg](func(c *mediumCfg) (*modellib.Model[mediumCfg], error) { return modellib.New(c) }),
+			)
+			cfg, _, _, err := p.Get()
+			if err != nil {
+				b.Fatalf("provider legacy: %v", err)
+			}
+			sinkCfg = cfg
+		}
+	})
+
+	b.Run("Provider_Pipeline", func(b *testing.B) {
+		b.ReportAllocs()
+		b.Setenv(pfx+"_CONFIG_PATH", path)
+		for i := 0; i < b.N; i++ {
+			p := New[mediumCfg](
+				WithEnvPrefix[mediumCfg](pfx),
+				WithModel[mediumCfg](func(c *mediumCfg) (*modellib.Model[mediumCfg], error) { return modellib.New(c) }),
+				WithPipelineMode[mediumCfg](),
+			)
+			cfg, _, _, err := p.Get()
+			if err != nil {
+				b.Fatalf("provider pipeline: %v", err)
+			}
+			sinkCfg = cfg
+		}
+	})
+
+	b.Run("Builder", func(b *testing.B) {
+		b.ReportAllocs()
+		builder := NewBuilder[mediumCfg](
+			WithBuilderFileOps[mediumCfg](func() string { return path }, func() bool { return false }, streams.Discard(), nil, nil),
+			WithBuilderModelDefaults[mediumCfg](func(c *mediumCfg) (*modellib.Model[mediumCfg], error) { return modellib.New(c) }),
+			WithBuilderEnv[mediumCfg](pfx, SetOverride),
+			WithBuilderModelValidateInit[mediumCfg](func(c *mediumCfg) (*modellib.Model[mediumCfg], error) { return modellib.New(c) }, func(err error, _ ValidationStrategy) error { return err }, ValidateAllErrors),
+		)
+		for i := 0; i < b.N; i++ {
+			var cfg mediumCfg
+			if err := builder.Build(context.Background(), &cfg); err != nil {
+				b.Fatalf("builder: %v", err)
+			}
+			sinkCfg = &cfg
+		}
+	})
+}
