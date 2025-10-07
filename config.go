@@ -53,22 +53,6 @@ type Provider[T any] struct {
 	envSetStrategy     SetStrategy
 	validationStrategy ValidationStrategy
 	stages             []pip.Stage[T]
-
-	// Cached default pipeline stages to reduce per-init allocations
-	defaultStagesOnce sync.Once
-	defaultStages     []pip.Stage[T]
-
-	// Lazy, pre-defined stage instances for reuse across pipelines
-	factoryStageOnce       sync.Once
-	factoryStage           pip.Stage[T]
-	modelDefaultsStageOnce sync.Once
-	modelDefaultsStage     pip.Stage[T]
-	fileStageOnce          sync.Once
-	fileStage              pip.Stage[T]
-	envStageOnce           sync.Once
-	envStage               pip.Stage[T]
-	validateStageOnce      sync.Once
-	validateStage          pip.Stage[T]
 }
 
 // Option configures a Provider at construction time. Options are composable and
@@ -389,96 +373,4 @@ func (m *Provider[T]) applyValidationStrategy(err error) error {
 		}
 	}
 	return err
-}
-
-// ----- Lazy pre-defined stages -----
-
-// stageFactory returns a no-op stage placeholder for the default factory.
-// The Provider constructs m.cfg prior to pipeline execution, so this stage is informational.
-func (m *Provider[T]) stageFactory() pip.Stage[T] {
-	m.factoryStageOnce.Do(func() {
-		m.factoryStage = pip.NewStage[T]("factory", func(ctx context.Context, t *T) (bool, error) {
-			_ = ctx
-			// No-op; factory already ran before pipeline.
-			return false, nil
-		})
-	})
-	return m.factoryStage
-}
-
-// stageModelDefaults applies github.com/ygrebnov/model defaults when configured.
-func (m *Provider[T]) stageModelDefaults() pip.Stage[T] {
-	m.modelDefaultsStageOnce.Do(func() {
-		if m.modelInit == nil {
-			m.modelDefaultsStage = nil
-			return
-		}
-		m.modelDefaultsStage = pip.StageFromSource(&pip.ModelDefaultsSource[T]{
-			Init: func(c *T) (pip.Model, error) {
-				mdl, err := m.modelInit(c)
-				if err != nil {
-					return nil, err
-				}
-				if mdl != nil {
-					m.model = mdl
-				}
-				return mdl, nil
-			},
-		})
-	})
-	return m.modelDefaultsStage
-}
-
-// stageFileOps loads config from file and, when persistent, creates the file if missing.
-func (m *Provider[T]) stageFileOps() pip.Stage[T] {
-	m.fileStageOnce.Do(func() {
-		m.fileStage = pip.StageFromSource(&pip.FileSource[T]{
-			Path:         func() string { return m.configPath },
-			Persist:      func() bool { return m.persist },
-			EnsurePath:   func(p string) error { return EnsurePath(p) },
-			LoadFromFile: func(p string, t *T) error { return loadFromFile(p, t) },
-			WriteToFile:  func(p string, t *T) error { return writeToFile(p, t) },
-			Streams:      m.streams,
-			OnCreated: func(p string) {
-				m.fileCreated = true
-				if m.streams != nil && m.streams.Out() != nil {
-					fmt.Fprintf(m.streams.Out(), "config: created new config at %s\n", p)
-				}
-			},
-			OnLoaded: func(p string) {
-				if m.persist && m.streams != nil && m.streams.Out() != nil {
-					fmt.Fprintf(m.streams.Out(), "config: loaded from %s\n", p)
-				}
-			},
-		})
-	})
-	return m.fileStage
-}
-
-// stageEnv applies environment overrides according to the configured strategy.
-func (m *Provider[T]) stageEnv() pip.Stage[T] {
-	m.envStageOnce.Do(func() {
-		m.envStage = pip.NewStage[T]("env", func(ctx context.Context, t *T) (bool, error) {
-			_ = ctx
-			m.loadFromEnv(t, m.envSetStrategy)
-			return true, nil
-		})
-	})
-	return m.envStage
-}
-
-// stageModelValidation validates the final config using the bound model when available.
-func (m *Provider[T]) stageModelValidation() pip.Stage[T] {
-	m.validateStageOnce.Do(func() {
-		if m.modelInit == nil {
-			m.validateStage = nil
-			return
-		}
-		m.validateStage = pip.StageFromFinalizer(&pip.ModelValidationFinalizer[T]{
-			Model:     func() pip.Model { return m.model },
-			Strategy:  pip.ValidationStrategy(m.validationStrategy),
-			ReduceErr: func(err error, _ pip.ValidationStrategy) error { return m.applyValidationStrategy(err) },
-		})
-	})
-	return m.validateStage
 }
