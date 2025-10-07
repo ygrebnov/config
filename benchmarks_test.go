@@ -1,12 +1,15 @@
 package config
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
 	modellib "github.com/ygrebnov/model"
+
+	"github.com/ygrebnov/config/streams"
 )
 
 // A medium-size configuration object with nested structs and pointers
@@ -268,5 +271,93 @@ func BenchmarkProvider_Get_Pipeline_Model_WithEnv(b *testing.B) {
 			b.Fatalf("Get (pipeline model with env) error: %v", err)
 		}
 		sinkModelCfg = cfg
+	}
+}
+
+// ---------------- Builder variants ----------------
+
+func BenchmarkBuilder_Medium_WithEnv(b *testing.B) {
+	setupBenchmarkEnv(b)
+	b.ReportAllocs()
+	builder := NewBuilder[mediumCfg](
+		WithBuilderEnv[mediumCfg]("BM", SetOverride),
+	)
+	for i := 0; i < b.N; i++ {
+		var cfg mediumCfg
+		if err := builder.Build(context.Background(), &cfg); err != nil {
+			b.Fatalf("Builder env error: %v", err)
+		}
+		sinkCfg = &cfg
+	}
+}
+
+func BenchmarkBuilder_Medium_NoEnv(b *testing.B) {
+	clearBenchmarkEnv(b)
+	b.ReportAllocs()
+	builder := NewBuilder[mediumCfg](
+		WithBuilderEnv[mediumCfg]("BM", SetOverride),
+	)
+	for i := 0; i < b.N; i++ {
+		var cfg mediumCfg
+		if err := builder.Build(context.Background(), &cfg); err != nil {
+			b.Fatalf("Builder no-env error: %v", err)
+		}
+		sinkCfg = &cfg
+	}
+}
+
+func BenchmarkBuilder_Persistent_FileExists(b *testing.B) {
+	dirName := setupPersistentFile(b, "bmapp", "name: fromfile\nport: 8082\n")
+	b.ReportAllocs()
+	builder := NewBuilder[mediumCfg](
+		WithBuilderFileOps[mediumCfg](
+			func() string { return filepath.Join(os.Getenv("XDG_CONFIG_HOME"), dirName, "config.yml") },
+			func() bool { return true },
+			streams.Discard(),
+			nil,
+			nil,
+		),
+	)
+	for i := 0; i < b.N; i++ {
+		var cfg mediumCfg
+		if err := builder.Build(context.Background(), &cfg); err != nil {
+			b.Fatalf("Builder persistent file error: %v", err)
+		}
+		sinkCfg = &cfg
+	}
+}
+
+func BenchmarkBuilder_Model_NoEnv(b *testing.B) {
+	b.Setenv("BMM_CONFIG_PATH", "")
+	b.ReportAllocs()
+	builder := NewBuilder[modelCfg](
+		WithBuilderModelDefaults[modelCfg](func(c *modelCfg) (*modellib.Model[modelCfg], error) { return modellib.New(c) }),
+		WithBuilderModelValidateInit[modelCfg](func(c *modelCfg) (*modellib.Model[modelCfg], error) { return modellib.New(c) }, func(err error, _ ValidationStrategy) error { return err }, ValidateAllErrors),
+	)
+	for i := 0; i < b.N; i++ {
+		var cfg modelCfg
+		if err := builder.Build(context.Background(), &cfg); err != nil {
+			b.Fatalf("Builder model no-env error: %v", err)
+		}
+		sinkModelCfg = &cfg
+	}
+}
+
+func BenchmarkBuilder_Model_WithEnv(b *testing.B) {
+	b.Setenv("BMM_CONFIG_PATH", "")
+	b.Setenv("BMM_NAME", "fromenv")
+	b.Setenv("BMM_PORT", "9090")
+	b.ReportAllocs()
+	builder := NewBuilder[modelCfg](
+		WithBuilderModelDefaults[modelCfg](func(c *modelCfg) (*modellib.Model[modelCfg], error) { return modellib.New(c) }),
+		WithBuilderEnv[modelCfg]("BMM", SetOverride),
+		WithBuilderModelValidateInit[modelCfg](func(c *modelCfg) (*modellib.Model[modelCfg], error) { return modellib.New(c) }, func(err error, _ ValidationStrategy) error { return err }, ValidateAllErrors),
+	)
+	for i := 0; i < b.N; i++ {
+		var cfg modelCfg
+		if err := builder.Build(context.Background(), &cfg); err != nil {
+			b.Fatalf("Builder model with env error: %v", err)
+		}
+		sinkModelCfg = &cfg
 	}
 }
