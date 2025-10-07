@@ -53,6 +53,10 @@ type Provider[T any] struct {
 	envSetStrategy     SetStrategy
 	validationStrategy ValidationStrategy
 	stages             []pip.Stage[T]
+
+	// Cached default pipeline stages to reduce per-init allocations
+	defaultStagesOnce sync.Once
+	defaultStages     []pip.Stage[T]
 }
 
 // Option configures a Provider at construction time. Options are composable and
