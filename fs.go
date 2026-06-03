@@ -1,39 +1,41 @@
-// Package config: filesystem path and persistence helpers.
-//
-// This file contains path validation and directory creation logic (EnsurePath)
-// and associated error sentinels used by the Provider when persisting config
-// files to disk.
+// Package config: filesystem path helpers.
 package config
 
 import (
 	"errors"
 	"os"
 	"path/filepath"
+
+	"github.com/ygrebnov/errorc"
+
+	configerrors "github.com/ygrebnov/config/pkg/errors"
+	configkeys "github.com/ygrebnov/config/pkg/keys"
 )
 
-// Filesystem & path utilities (extracted from util.go).
-
-var (
-	ErrInaccessiblePath        = errors.New("inaccessible path")
-	ErrCannotCreateDirectories = errors.New("cannot create directories")
-)
-
-// EnsurePath ensures the directories for a file path exist and the path
-// does not already exist as a directory.
-func EnsurePath(p string) error {
-	info, err := os.Stat(p)
+// EnsurePath ensures the directories for a file path exist and the path does not already exist as a directory.
+func EnsurePath(path string) error {
+	info, err := os.Stat(path)
 	switch {
 	case err == nil:
 		if info.IsDir() {
-			return ErrInaccessiblePath
+			return errorc.With(configerrors.ErrInaccessiblePath, errorc.String(configkeys.Path, path))
 		}
 		return nil
 	case !errors.Is(err, os.ErrNotExist):
-		return ErrInaccessiblePath
+		return errorc.With(
+			configerrors.ErrInaccessiblePath,
+			errorc.String(configkeys.Path, path),
+			errorc.Error(configkeys.Cause, err),
+		)
 	}
-	dir := filepath.Dir(p)
+
+	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return ErrCannotCreateDirectories
+		return errorc.With(
+			configerrors.ErrCannotCreateDirectories,
+			errorc.String(configkeys.Path, path),
+			errorc.Error(configkeys.Cause, err),
+		)
 	}
 	return nil
 }

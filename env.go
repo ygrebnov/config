@@ -1,8 +1,4 @@
 // Package config: environment variable reflection & application helpers.
-//
-// This file provides applyEnv and related utilities that walk a user config
-// struct and override fields from environment variables derived from struct
-// tags (`env:""`) or SCREAMING_SNAKE_CASE field names.
 package config
 
 import (
@@ -13,14 +9,21 @@ import (
 	"time"
 )
 
-// Environment variable application logic split from util.go for clarity.
-// applyEnv now delegates to a precomputed metadata fast-path walker to reduce
-// reflection churn and string concatenations.
-func applyEnv(v reflect.Value, prefix string, _ []string, strategy SetStrategy) {
-	applyEnvWithMeta(v, prefix, strategy)
+func applyEnvToTarget(target any, prefix string, strategy SetStrategy) {
+	if target == nil {
+		return
+	}
+	rv := reflect.ValueOf(target)
+	if !rv.IsValid() || rv.Kind() != reflect.Pointer || rv.IsNil() {
+		return
+	}
+	applyEnv(rv, prefix, strategy)
 }
 
-func isZero(v reflect.Value) bool { return v.IsZero() }
+// applyEnv delegates to the precomputed metadata fast-path walker to reduce reflection churn.
+func applyEnv(v reflect.Value, prefix string, strategy SetStrategy) {
+	applyEnvWithMeta(v, prefix, strategy)
+}
 
 func buildEnvName(prefix string, segments []string) string {
 	switch {
@@ -76,20 +79,11 @@ func getDuration(name string) (time.Duration, bool) {
 	return d, true
 }
 
-func hasAnyEnvWithPrefix(prefix string) bool {
-	for _, e := range os.Environ() {
-		if strings.HasPrefix(e, prefix) {
-			return true
-		}
-	}
-	return false
-}
-
-// toScreamingSnake converts CamelCase / PascalCase to SCREAMING_SNAKE preserving digit groups.
+// toScreamingSnake converts ASCII CamelCase / PascalCase to SCREAMING_SNAKE preserving digit groups.
 func toScreamingSnake(s string) string {
 	var b strings.Builder
 	for i, r := range s {
-		if i > 0 && isBoundary(rune(s[i-1]), r) {
+		if i > 0 && isBoundary(s, i) {
 			b.WriteByte('_')
 		}
 		b.WriteRune(toUpper(r))
@@ -97,9 +91,30 @@ func toScreamingSnake(s string) string {
 	return b.String()
 }
 
-func isBoundary(prev, curr rune) bool {
-	return (prev >= 'a' && prev <= 'z') && (curr >= 'A' && curr <= 'Z')
+func isBoundary(s string, i int) bool {
+	prev := rune(s[i-1])
+	curr := rune(s[i])
+	next := rune(0)
+	if i+1 < len(s) {
+		next = rune(s[i+1])
+	}
+
+	if isLowerASCII(prev) && isUpperASCII(curr) {
+		return true
+	}
+
+	if (isUpperASCII(prev) || isDigitASCII(prev)) && isUpperASCII(curr) && isLowerASCII(next) {
+		return true
+	}
+
+	return false
 }
+
+func isLowerASCII(r rune) bool { return r >= 'a' && r <= 'z' }
+
+func isUpperASCII(r rune) bool { return r >= 'A' && r <= 'Z' }
+
+func isDigitASCII(r rune) bool { return r >= '0' && r <= '9' }
 
 func toUpper(r rune) rune {
 	if r >= 'a' && r <= 'z' {
