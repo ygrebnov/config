@@ -1,24 +1,34 @@
 // Package config provides a small, opinionated configuration loader for Go applications.
 //
-// It supports:
-//  1. Constructing a config instance via a user-provided default factory.
-//  2. Loading overrides from YAML/JSON files (optionally persisted under a user
-//     config directory).
-//  3. Applying environment variable overrides using `env` tags or field names
-//     converted to SCREAMING_SNAKE_CASE.
-//  4. Optional integration with github.com/ygrebnov/model for struct defaults
-//     (via `default` tags) and validation (via `validate` tags).
+// The public API is centered on two entry points:
 //
-// Typical usage:
+//	Load(ctx, &cfg, opts...)
 //
-//	p := config.New[Cfg](
-//	    config.WithPersistence[Cfg]("myapp"),
-//	    config.WithEnvPrefix[Cfg]("MYAPP"),
-//	    config.WithDefaultFn(func() *Cfg { return &Cfg{ Name: "default" } }),
-//	)
-//	cfg, path, created, err := p.Get()
-//	if err != nil {
-//	    log.Fatal(err)
-//	}
-//	_ = cfg; _ = path; _ = created
+// for one-shot initialization, and
+//
+//	controller := NewController[Cfg](opts...)
+//	controller.Load(ctx, &cfg)
+//	controller.Get("db.host")
+//	controller.Set("db.host", "localhost")
+//	controller.Save(ctx)
+//
+// for interactive read/update/save flows.
+//
+// Load is safe for concurrent use with the same target pointer and initializes
+// that pointer at most once. Later calls with the same pointer reuse the first
+// completed result. Use Controller when you want an explicit mutable lifecycle
+// and persistence owner for a config instance.
+//
+// Loading order is deterministic:
+//  1. start from the target's current state
+//  2. apply github.com/ygrebnov/model defaults, if WithModel is enabled
+//  3. read YAML/JSON config from an explicit or well-known path, if configured
+//  4. apply environment overrides
+//  5. validate via github.com/ygrebnov/model, if WithModel is enabled
+//
+// Supported options include WithPath, WithAppName, WithEnvPrefix, WithModel,
+// WithEnvSetStrategy, WithValidationStrategy, and WithStreams.
+//
+// Invalid option values are reported by Load and Controller.Load rather than by
+// option constructors.
 package config

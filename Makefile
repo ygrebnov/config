@@ -8,4 +8,7 @@ test:
 	@go tool cover -func=$(COVERAGE_PATH)coverage.txt -o $(COVERAGE_PATH)functions.txt
 	@go tool cover -html=$(COVERAGE_PATH)coverage.txt -o $(COVERAGE_PATH)coverage.html
 
+bench:
+	@go test -bench=. -benchmem -run=^$
+
 .PHONY: test
