@@ -1,10 +1,21 @@
 package errors
 
-import "github.com/ygrebnov/errorc"
+import (
+	errorsPkg "errors"
+
+	"github.com/ygrebnov/errorc"
+)
 
 var namespace = errorc.Namespace("config")
 
 var (
+	ErrConfigurationFileNotFound                 = errorc.New("configuration file not found")
+	ErrInvalidConfigFile                         = namespace.NewError("invalid config file")
+	ErrCannotResolveUserConfigDir                = namespace.NewError("cannot resolve user config dir")
+	ErrInvalidConfigFilePath                     = namespace.NewError("invalid path")
+	ErrCannotLoadConfigurationIntoProvidedObject = errorc.New("cannot load configuration into provided object")
+	ErrCannotInitializeConfigurationObject       = errorc.New("cannot initialize configuration object")
+
 	// ErrNilTarget is returned when Load or Controller.Load receives a nil target pointer.
 	ErrNilTarget = namespace.NewError("nil target")
 	// ErrNotStructPointer is returned when the target is not a non-nil pointer to a struct.
@@ -46,3 +57,16 @@ var (
 	// ErrWrite is returned when encoded config data cannot be written or renamed into place.
 	ErrWrite = namespace.NewError("write config")
 )
+
+var (
+	ErrSettingNotFound     = errorc.New("setting not found")
+	ErrSettingTypeMismatch = errorc.New("setting type mismatch")
+	ErrMarshalingError     = errorc.New("marshaling error")
+	ErrParsingError        = errorc.New("parsing error")
+	ErrNilContext          = errorc.New("nil context")
+)
+
+// Is wraps native errors package Is.
+func Is(err, target error) bool {
+	return errorsPkg.Is(err, target)
+}

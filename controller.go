@@ -2,146 +2,248 @@ package config
 
 import (
 	"context"
-	"fmt"
+	"encoding/json"
 	"sync"
 
 	kitstreams "github.com/pumpingbytes/go-kit/streams"
 	"github.com/ygrebnov/errorc"
+	"github.com/ygrebnov/model"
+	"gopkg.in/yaml.v3"
 
 	configerrors "github.com/ygrebnov/config/pkg/errors"
 	configkeys "github.com/ygrebnov/config/pkg/keys"
+
+	fsPkg "github.com/ygrebnov/config/internal/fs"
+	storePkg "github.com/ygrebnov/config/internal/store"
 )
 
-// Controller provides load/get/set/save operations for a single config target.
+// Controller provides load/get/set/save operations for a single config object of type T.
+// Controller operates on its own representation of the configuration object.
+// It does not mutate the user-provided object. It can only load configuration into that object.
+//
+// Each new instance of the Controller is independent and can be used to manage a different configuration object.
+//
+// If you need to just load the configuration from the provided or well-known OS-specific location,
+// it is recommended to use Load.
+//
+// A type-safe version of Controller, ControllerTyped[T any], is planned for future releases.
 type Controller[T any] struct {
-	mu       sync.RWMutex
-	settings settings[T]
-	target   *T
-	path     string
-	access   *accessMeta
-	state    *loadState
+	mu sync.Mutex // Load vs Save.
+
+	envPrefix string
+	path      string // path to file holding configuration.
+
+	binding *model.Binding[T]
+
+	store storeService // internal store.
+	fs    fsService    // filesystem operations.
+
+	streams kitstreams.IOStreams
+}
+
+type storeService interface {
+	Set(key string, value any)
+	Get(key string) (any, bool)
+
+	GetJSON() ([]byte, error)
+}
+
+type fsService interface {
+	From(ctx context.Context) (string, error)
+	To(context.Context, string) error
 }
 
 // NewController constructs a controller configured with the provided options.
-func NewController[T any](opts ...Option[T]) *Controller[T] {
-	return &Controller[T]{settings: applyOptions(opts...), state: &loadState{}}
+//
+// The constructor is heavy and can return an error. It initializes store and filesystem services,
+// resolves configuration source file path and attempts to load configuration from that file into its store.
+//
+// Below-mentioned options modify Controller behavior.
+//
+// WithPath sets an explicit config file path. It takes precedence over env and app-name resolution.
+//
+// WithEnvPrefix sets configuration file path to ${PREFIX}_CONFIG_PATH, if it is non-empty.
+// It also enables ${PREFIX}_{FULL_NAME} configuration settings resolving.
+// It takes precedence over app-name resolution.
+//
+// WithAppName sets configuration file path to a well-known OS-specific user config location:
+// <user-config-dir>/<app>/config.yml.
+//
+// WithStreams option allows writing configuration operations messages to the provided streams.
+//
+// NewControllerCtx alternative constructor allows providing a context for cancellation and timeout control.
+func NewController[T any](opts ...Option) (*Controller[T], error) {
+	return NewControllerCtx[T](context.Background(), opts...)
 }
 
-// Load populates dst and binds it to the controller for future Get/Set/Save calls.
-func (c *Controller[T]) Load(ctx context.Context, dst *T) error {
-	if err := validateTarget(dst); err != nil {
+// NewControllerCtx is the same constructor as NewController,
+// but allows providing a context for cancellation and timeout control.
+func NewControllerCtx[T any](ctx context.Context, opts ...Option) (*Controller[T], error) {
+	if ctx == nil {
+		return nil, configerrors.ErrNilContext
+	}
+
+	cfg := applyOptions(opts...)
+	// TODO: add WithValidationRules option (just pass through model.validation rules)
+
+	// create binding
+	binding, err := model.NewBinding[T](model.WithEnvPrefix(cfg.envPrefix))
+	if err != nil {
+		return nil, err
+	}
+
+	// initialize store
+	store := storePkg.New()
+
+	fsCfg := &fsPkg.Config{
+		Path:      cfg.path,
+		EnvPrefix: cfg.envPrefix,
+		AppName:   cfg.appName,
+	}
+	fs := fsPkg.New(fsCfg, store, cfg.streams)
+
+	path, err := fs.From(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	b, err := store.GetJSON()
+	if err != nil {
+		return nil, err
+	}
+
+	// apply defaults via struct tags and environment variables and validate
+	obj := new(T)
+
+	err = yaml.Unmarshal(b, obj)
+	if err != nil {
+		return nil, errorc.With(
+			configerrors.ErrCannotInitializeConfigurationObject,
+			errorc.Error(configkeys.Cause, err),
+		)
+	}
+
+	err = binding.ValidateWithDefaults(ctx, obj)
+	if err != nil {
+		return nil, errorc.With(
+			configerrors.ErrCannotInitializeConfigurationObject,
+			errorc.Error(configkeys.Cause, err),
+		)
+	}
+
+	// load object back to store
+	bytes, err := yaml.Marshal(obj)
+	if err != nil {
+		return nil, errorc.With(
+			configerrors.ErrCannotInitializeConfigurationObject,
+			errorc.Error(configkeys.Cause, err),
+		)
+	}
+
+	err = store.FromBytes(bytes)
+	if err != nil {
+		return nil, errorc.With(
+			configerrors.ErrCannotInitializeConfigurationObject,
+			errorc.Error(configkeys.Cause, err),
+		)
+	}
+
+	return &Controller[T]{
+		envPrefix: cfg.envPrefix,
+		store:     store,
+		fs:        fs,
+		path:      path,
+		binding:   binding,
+		streams:   cfg.streams,
+	}, nil
+}
+
+// Load populates provided object with data from the store.
+func (c *Controller[T]) Load(ctx context.Context, obj *T) error {
+	if ctx == nil {
+		return configerrors.ErrNilContext
+	}
+
+	if err := ctx.Err(); err != nil {
 		return err
 	}
 
-	meta, err := getAccessMeta(dst)
+	if obj == nil {
+		return configerrors.ErrNilTarget
+	}
+
+	b, err := c.store.GetJSON()
 	if err != nil {
 		return err
 	}
 
-	c.mu.Lock()
-	state := c.state
-	if state == nil {
-		state = &loadState{}
-		c.state = state
-	}
-	settings := c.settings
-	c.mu.Unlock()
-
-	if err := validateSettings(settings); err != nil {
-		return err
+	err = json.Unmarshal(b, obj)
+	if err != nil {
+		return errorc.With(
+			configerrors.ErrCannotLoadConfigurationIntoProvidedObject,
+			errorc.Error(configkeys.Cause, err),
+		)
 	}
 
-	state.once.Do(func() {
-		state.result, state.err = loadInto(ctx, dst, settings)
-	})
-	if state.err != nil {
-		return state.err
+	err = c.binding.Validate(ctx, obj)
+	if err != nil {
+		return errorc.With(
+			configerrors.ErrCannotLoadConfigurationIntoProvidedObject,
+			errorc.Error(configkeys.Cause, err),
+		)
 	}
 
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.target = dst
-	c.path = state.result.path
-	c.access = meta
-	c.state = state
 	return nil
 }
 
-// Get returns a config option by dotted name.
-func (c *Controller[T]) Get(name string) (any, error) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	if c.target == nil || c.access == nil {
-		return nil, configerrors.ErrControllerNotLoaded
-	}
-	return c.access.get(c.target, name)
+// Get returns a configuration option value by dotted name.
+func (c *Controller[T]) Get(name string) (any, bool) {
+	return c.store.Get(name)
 }
 
-// Set updates a config option by dotted name.
-func (c *Controller[T]) Set(name string, value any) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	if c.target == nil || c.access == nil {
-		return configerrors.ErrControllerNotLoaded
-	}
-	return c.access.set(c.target, name, value)
+// Set updates a configuration option value by dotted name.
+//
+// Note: value is updated only in the internal store. To persist it, call Save.
+func (c *Controller[T]) Set(name string, value any) {
+	c.store.Set(name, value)
 }
 
-// Save persists the currently bound config target.
-func (c *Controller[T]) Save(ctx context.Context) error {
+type saveOptions struct {
+	path string
+}
+
+type SaveOption func(*saveOptions)
+
+func WithSavePath(path string) SaveOption {
+	return func(opts *saveOptions) {
+		opts.path = path
+	}
+}
+
+// Save writes configuration to disk.
+//
+// If no path is provided via WithSavePath, it will use the path configured in the Controller.
+// ErrPathNotConfigured error is returned if the path is empty/not resolved.
+func (c *Controller[T]) Save(ctx context.Context, opts ...SaveOption) error {
 	if ctx == nil {
-		ctx = context.Background()
+		return configerrors.ErrNilContext
 	}
+
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if c.target == nil {
-		return configerrors.ErrControllerNotLoaded
+	options := &saveOptions{path: c.path}
+	for _, opt := range opts {
+		opt(options)
 	}
 
-	path := c.path
-	if path == "" {
-		resolved, err := resolveConfigPath(c.settings)
-		if err != nil {
-			return err
-		}
-		path = resolved
-	}
-	if path == "" {
+	if options.path == "" {
 		return configerrors.ErrPathNotConfigured
 	}
 
-	if err := EnsurePath(path); err != nil {
-		return err
-	}
-	if err := writeToFile(path, c.target); err != nil {
-		return err
-	}
-
-	c.path = path
-	writeOut(c.settings.streams, "config: saved to %s\n", path)
-	return nil
-}
-
-func writeOut(streams kitstreams.IOStreams, format string, args ...any) {
-	if streams == nil || streams.Out() == nil {
-		return
-	}
-	_, _ = fmt.Fprintf(streams.Out(), format, args...)
-}
-
-func writeErr(streams kitstreams.IOStreams, format string, args ...any) {
-	if streams == nil || streams.ErrOut() == nil {
-		return
-	}
-	_, _ = fmt.Fprintf(streams.ErrOut(), format, args...)
-}
-
-func optionNotFound(name string) error {
-	return errorc.With(configerrors.ErrOptionNotFound, errorc.String(configkeys.OptionPath, name))
+	return c.fs.To(ctx, options.path)
 }

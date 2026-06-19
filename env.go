@@ -1,6 +1,7 @@
 // Package config: environment variable reflection & application helpers.
 package config
 
+/*
 import (
 	"os"
 	"reflect"
@@ -122,3 +123,4 @@ func toUpper(r rune) rune {
 	}
 	return r
 }
+*/

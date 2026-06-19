@@ -1,4 +1,4 @@
-// Package config provides a small, opinionated configuration loader for Go applications.
+// Package config provides a small configuration library for Go applications.
 //
 // The public API is centered on two entry points:
 //
@@ -26,9 +26,5 @@
 //  4. apply environment overrides
 //  5. validate via github.com/ygrebnov/model, if WithModel is enabled
 //
-// Supported options include WithPath, WithAppName, WithEnvPrefix, WithModel,
-// WithEnvSetStrategy, WithValidationStrategy, and WithStreams.
-//
-// Invalid option values are reported by Load and Controller.Load rather than by
-// option constructors.
+// Supported options include WithPath, WithAppName, WithEnvPrefix, and WithStreams.
 package config

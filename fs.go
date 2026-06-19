@@ -1,6 +1,7 @@
 // Package config: filesystem path helpers.
 package config
 
+/*
 import (
 	"errors"
 	"os"
@@ -39,3 +40,4 @@ func EnsurePath(path string) error {
 	}
 	return nil
 }
+*/

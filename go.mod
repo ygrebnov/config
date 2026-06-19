@@ -8,7 +8,7 @@ require (
 	github.com/pumpingbytes/go-kit v0.1.0
 	github.com/ygrebnov/errorc v0.6.0
 	github.com/ygrebnov/keys v0.2.0
-	github.com/ygrebnov/model v0.5.0
+	github.com/ygrebnov/model v0.6.0
 )
 
 require (

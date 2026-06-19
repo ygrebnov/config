@@ -13,3 +13,10 @@ var (
 	Cause      = keys.New("cause")
 )
 
+var newSettingKey = keys.Factory(keys.WithSegments("setting"))
+
+var (
+	SettingName          = newSettingKey("name")
+	SettingType          = newSettingKey("type")
+	SettingRequestedType = newSettingKey("requested_type")
+)
