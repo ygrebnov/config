@@ -12,8 +12,8 @@ github.com/ygrebnov/errorc v0.6.0 h1:MBj9TVLeydiLMyvpHTKpI9iBgL8sCFKoKaZQp4NzEow
 github.com/ygrebnov/errorc v0.6.0/go.mod h1:akitMzADmnm0i1X5fSJfBqiTqCzckka9sgukTRQN5ns=
 github.com/ygrebnov/keys v0.2.0 h1:KQSQG1la9WkTW59WbB3CK1yhxZ92el2ZJfV1XtlHTp0=
 github.com/ygrebnov/keys v0.2.0/go.mod h1:4IfRPgv7tFSlToKzHtA9MPMwXP0+HRJ0Kk8XSrvhDvQ=
-github.com/ygrebnov/model v0.6.0 h1:htlfayBTA+O6TuwchzmrkIbpXE32hKYl/Ior1g4ieEc=
-github.com/ygrebnov/model v0.6.0/go.mod h1:rrvL19ppxCOSX4q1DiXFWUvZU2J31NW2ZE9SsRPXZLU=
+github.com/ygrebnov/model v0.7.0 h1:G6Jofrl6og/4x/etG2BgQvk9dKNpOtI3TKuRwDimKPw=
+github.com/ygrebnov/model v0.7.0/go.mod h1:rrvL19ppxCOSX4q1DiXFWUvZU2J31NW2ZE9SsRPXZLU=
 gopkg.in/check.v1 v0.0.0-20161208181325-20d25e280405/go.mod h1:Co6ibVJAznAaIkqp8huTwlJQCZ016jof/cbN4VW5Yz0=
 gopkg.in/check.v1 v1.0.0-20190902080502-41f04d3bba15 h1:YR8cESwS4TdDjEe65xsg0ogRM/Nc3DYOhEAlW+xobZo=
 gopkg.in/check.v1 v1.0.0-20190902080502-41f04d3bba15/go.mod h1:Co6ibVJAznAaIkqp8huTwlJQCZ016jof/cbN4VW5Yz0=
