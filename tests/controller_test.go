@@ -82,6 +82,30 @@ func TestController(t *testing.T) {
 	}
 }
 
+func TestNewControllerCtx_RejectsNilContext(t *testing.T) {
+	if _, err := config.NewControllerCtx[smallCfg](nil); !errors.Is(err, errors.ErrNilContext) {
+		t.Fatalf("NewControllerCtx(nil) error = %v, want ErrNilContext", err)
+	}
+}
+
+func TestNewControllerCtx_RejectsCancelledContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	if _, err := config.NewControllerCtx[smallCfg](ctx); err != context.Canceled {
+		t.Fatalf("NewControllerCtx(cancelled context) error = %v, want %v", err, context.Canceled)
+	}
+}
+
+func TestNewController_ReturnsParseError(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	writeFile(t, path, "name: [\n")
+
+	if _, err := config.NewController[smallCfg](config.WithPath(path)); !errors.Is(err, errors.ErrParse) {
+		t.Fatalf("NewController() error = %v, want ErrParse", err)
+	}
+}
+
 func TestController_LoadGetSetSave(t *testing.T) {
 	td := t.TempDir()
 	path := filepath.Join(td, "config.yaml")

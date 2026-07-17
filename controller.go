@@ -14,11 +14,10 @@ import (
 	"github.com/ygrebnov/model/field"
 	"gopkg.in/yaml.v3"
 
-	configerrors "github.com/ygrebnov/config/pkg/errors"
-	configkeys "github.com/ygrebnov/config/pkg/keys"
-
 	fsPkg "github.com/ygrebnov/config/internal/fs"
 	storePkg "github.com/ygrebnov/config/internal/store"
+	configerrors "github.com/ygrebnov/config/pkg/errors"
+	configkeys "github.com/ygrebnov/config/pkg/keys"
 )
 
 // Controller provides load/get/set/save operations for a single config object
@@ -67,8 +66,8 @@ type storeValueSource struct {
 
 var _ field.ValueSource = storeValueSource{}
 
-func (s storeValueSource) Get(name string) (any, bool, error) {
-	value, found := s.store.Get(name)
+func (s storeValueSource) Get(name string) (value any, found bool, err error) {
+	value, found = s.store.Get(name)
 
 	return value, found, nil
 }
@@ -113,12 +112,14 @@ func nilStoreValue(value any) any {
 	return value
 }
 
+const extJSON = ".json"
+
 func unmarshalConfigurationFile(
 	path string,
 	data []byte,
 	obj any,
 ) error {
-	if filepath.Ext(path) == ".json" {
+	if filepath.Ext(path) == extJSON {
 		return json.Unmarshal(data, obj)
 	}
 
@@ -126,7 +127,7 @@ func unmarshalConfigurationFile(
 }
 
 func marshalConfigurationFile(path string, obj any) ([]byte, error) {
-	if filepath.Ext(path) == ".json" {
+	if filepath.Ext(path) == extJSON {
 		return json.Marshal(obj)
 	}
 
@@ -166,6 +167,14 @@ func NewController[T any](opts ...Option) (*Controller[T], error) {
 // context to control cancellation and timeout.
 func NewControllerCtx[T any](
 	ctx context.Context,
+	opts ...Option,
+) (*Controller[T], error) {
+	return newControllerCtx[T](ctx, newStoreValueSink, opts...)
+}
+
+func newControllerCtx[T any](
+	ctx context.Context,
+	sinkFactory func(storeService) field.ValueSink,
 	opts ...Option,
 ) (*Controller[T], error) {
 	if ctx == nil {
@@ -223,7 +232,7 @@ func NewControllerCtx[T any](
 	store := storePkg.New()
 	if err := binding.WriteValues(
 		obj,
-		storeValueSink{store: store},
+		sinkFactory(store),
 	); err != nil {
 		return nil, initializationError(err)
 	}
@@ -238,6 +247,10 @@ func NewControllerCtx[T any](
 		fs:        fs,
 		streams:   cfg.streams,
 	}, nil
+}
+
+func newStoreValueSink(store storeService) field.ValueSink {
+	return storeValueSink{store: store}
 }
 
 func initializationError(err error) error {
@@ -398,8 +411,8 @@ func (c *Controller[T]) Save(
 	if err != nil {
 		return err
 	}
-	if err := c.binding.Validate(ctx, obj); err != nil {
-		return err
+	if validationErr := c.binding.Validate(ctx, obj); validationErr != nil {
+		return validationErr
 	}
 
 	data, err := marshalConfigurationFile(options.path, obj)

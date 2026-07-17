@@ -1,6 +1,12 @@
 ROOT_PATH := $(dir $(realpath $(lastword $(MAKEFILE_LIST))))
 COVERAGE_PATH := $(ROOT_PATH).coverage/
 
+include $(CURDIR)/tools/tools.mk
+
+.PHONY: lint
+lint: install-golangci-lint
+	$(GOLANGCI_LINT) run
+
 .PHONY: test
 test:
 	@rm -rf $(COVERAGE_PATH)

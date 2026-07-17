@@ -170,8 +170,11 @@ Examples:
 - `DB.Host`
 - `RateLimit.MaxConn`
 
-## Try it
+## Contributing
 
-```zsh
-go test ./...
-```
+Contributions are welcome!
+Please open an [issue](https://github.com/ygrebnov/config/issues) or submit a [pull request](https://github.com/ygrebnov/config/pulls).
+
+## License
+
+Distributed under the BSD 3-Clause License. See the [LICENSE](LICENSE) file for details.

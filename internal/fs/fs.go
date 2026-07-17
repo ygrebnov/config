@@ -51,7 +51,7 @@ var (
 	renameFile = os.Rename
 )
 
-func (fs *FS) From(ctx context.Context) (string, []byte, error) {
+func (fs *FS) From(ctx context.Context) (p string, b []byte, e error) {
 	if err := ctx.Err(); err != nil {
 		return "", nil, err
 	}
