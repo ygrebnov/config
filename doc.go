@@ -14,10 +14,9 @@
 //
 // for interactive read/update/save flows.
 //
-// Load is safe for concurrent use with the same target pointer and initializes
-// that pointer at most once. Later calls with the same pointer reuse the first
-// completed result. Use Controller when you want an explicit mutable lifecycle
-// and persistence owner for a config instance.
+// Concurrent Load calls must use distinct target pointers or be synchronized by
+// the caller. Use Controller when you want an explicit mutable lifecycle and
+// persistence owner for a config instance.
 //
 // Loading order is deterministic:
 //  1. start from the target's current state

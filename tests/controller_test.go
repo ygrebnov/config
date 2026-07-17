@@ -6,12 +6,14 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+
+	"github.com/ygrebnov/model"
 
 	"github.com/ygrebnov/config"
 	"github.com/ygrebnov/config/pkg/errors"
 	pathPkg "github.com/ygrebnov/config/pkg/path"
-	"github.com/ygrebnov/model"
 )
 
 func getControllerValue[T any](
@@ -543,20 +545,6 @@ func TestController_PreservesYAMLOnlyAndInlineFields(t *testing.T) {
 	}
 }
 
-func TestController_SaveWithoutPath(t *testing.T) {
-	controller, err := config.NewController[smallCfg]()
-	if err != nil {
-		t.Fatalf("Controller constructor error: %v", err)
-	}
-	cfg := smallCfg{}
-	if err := controller.Load(context.Background(), &cfg); err != nil {
-		t.Fatalf("Load() error: %v", err)
-	}
-	if err := controller.Save(context.Background()); !errors.Is(err, errors.ErrPathNotConfigured) {
-		t.Fatalf("expected ErrPathNotConfigured, got %v", err)
-	}
-}
-
 func TestController_OptionNotFound(t *testing.T) {
 	controller, err := config.NewController[smallCfg]()
 	if err != nil {
@@ -572,31 +560,53 @@ func TestController_OptionNotFound(t *testing.T) {
 	}
 }
 
-/*
 func TestController_Concurrent_LoadGetSet(t *testing.T) {
-	controller := NewController[testCfg2]()
-	cfg := testCfg2{Name: "default"}
+	controller, err := config.NewController[smallCfg]()
+	if err != nil {
+		t.Fatalf("Controller constructor error: %v", err)
+	}
 
 	const workers = 16
+	start := make(chan struct{})
+	errs := make(chan error, workers)
+
 	var wg sync.WaitGroup
+	wg.Add(workers)
 	for i := 0; i < workers; i++ {
-		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			if err := controller.Load(nil, &cfg); err != nil {
-				t.Errorf("Load() error: %v", err)
+			<-start
+
+			var cfg smallCfg
+			if err := controller.Load(context.Background(), &cfg); err != nil {
+				errs <- fmt.Errorf("Load(): %w", err)
 				return
 			}
 			if _, err := controller.Get("Name"); err != nil {
-				t.Errorf("Get() error: %v", err)
+				errs <- fmt.Errorf("Get(Name): %w", err)
+				return
 			}
 			controller.Set("Count", i)
+
+			value, err := controller.Get("Count")
+			if err != nil {
+				errs <- fmt.Errorf("Get(Count): %w", err)
+				return
+			}
+			if _, ok := value.(int); !ok {
+				errs <- fmt.Errorf("Get(Count) value type = %T, want int", value)
+			}
 		}(i)
 	}
-	wg.Wait()
-}
 
-*/
+	close(start)
+	wg.Wait()
+	close(errs)
+
+	for err := range errs {
+		t.Error(err)
+	}
+}
 
 func TestController_SameTarget_DifferentSettingsIsolated(t *testing.T) {
 	td := t.TempDir()

@@ -6,7 +6,6 @@ import (
 	"errors"
 	"path/filepath"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -182,32 +181,6 @@ func TestLoad_InvalidTarget(t *testing.T) {
 	err := config.Load(context.Background(), &x)
 	if !errors.Is(err, modelerrors.ErrTypeParamNotStruct) {
 		t.Fatalf("expected ErrTypeParamNotStruct, got %v", err)
-	}
-}
-
-func TestLoad_Concurrent_Once(t *testing.T) {
-	td := t.TempDir()
-	path := filepath.Join(td, "config.yaml")
-	writeFile(t, path, "name: fromfile\ncount: 1\n")
-
-	cfg := smallCfg{}
-
-	const workers = 16
-	var wg sync.WaitGroup
-	wg.Add(workers)
-	for i := 0; i < workers; i++ {
-		go func() {
-			defer wg.Done()
-			err := config.Load(context.Background(), &cfg, config.WithPath(path))
-			if err != nil {
-				t.Errorf("Load() error: %v", err)
-			}
-		}()
-	}
-	wg.Wait()
-
-	if cfg.Name != "fromfile" || cfg.Count != 1 {
-		t.Fatalf("unexpected cfg: %+v", cfg)
 	}
 }
 
