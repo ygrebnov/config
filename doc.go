@@ -26,5 +26,6 @@
 //  4. apply environment overrides
 //  5. validate via github.com/ygrebnov/model, if WithModel is enabled
 //
-// Supported options include WithPath, WithAppName, WithEnvPrefix, and WithStreams.
+// Supported options include WithPath, WithAppName, WithEnvPrefix,
+// WithValidationRules, and WithStreams.
 package config

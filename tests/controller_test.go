@@ -2,6 +2,7 @@ package tests
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,6 +11,7 @@ import (
 	"github.com/ygrebnov/config"
 	"github.com/ygrebnov/config/pkg/errors"
 	pathPkg "github.com/ygrebnov/config/pkg/path"
+	"github.com/ygrebnov/model"
 )
 
 func getControllerValue[T any](
@@ -185,6 +187,44 @@ func TestController_AppNameCreatesAndReloadsConfig(t *testing.T) {
 	}
 	if loaded.Name != "persisted" {
 		t.Fatalf("loaded Name = %q, want %q", loaded.Name, "persisted")
+	}
+}
+
+func TestController_LoadAppliesCustomValidationRule(t *testing.T) {
+	type ruleCfg struct {
+		Name string `default:"allowed" validate:"allowed_name"`
+	}
+
+	rule, err := model.NewRule[string](
+		"allowed_name",
+		func(value string, _ ...string) error {
+			if value != "allowed" {
+				return fmt.Errorf("name %q is not allowed", value)
+			}
+
+			return nil
+		},
+	)
+	if err != nil {
+		t.Fatalf("NewRule() error: %v", err)
+	}
+
+	controller, err := config.NewController[ruleCfg](
+		config.WithValidationRules(rule),
+	)
+	if err != nil {
+		t.Fatalf("NewController() error: %v", err)
+	}
+
+	controller.Set("Name", "invalid")
+
+	var loaded ruleCfg
+	err = controller.Load(context.Background(), &loaded)
+	if !errors.Is(err, errors.ErrCannotLoadConfigurationIntoProvidedObject) {
+		t.Fatalf("expected ErrCannotLoadConfigurationIntoProvidedObject, got %v", err)
+	}
+	if !strings.Contains(err.Error(), `name "invalid" is not allowed`) {
+		t.Fatalf("expected custom rule error, got %v", err)
 	}
 }
 

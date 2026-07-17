@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	kitstreams "github.com/pumpingbytes/go-kit/streams"
+	"github.com/ygrebnov/model"
 )
 
 // Option configures the config loading process.
@@ -14,6 +15,7 @@ type settings struct {
 	appName   string
 	envPrefix string
 	streams   kitstreams.IOStreams
+	rules     []model.Rule
 }
 
 func applyOptions(opts ...Option) settings {
@@ -56,6 +58,15 @@ func WithEnvPrefix(prefix string) Option {
 		if prefix != "" {
 			cfg.envPrefix = prefix
 		}
+	}
+}
+
+// WithValidationRules registers custom model validation rules for Controller.
+func WithValidationRules(rules ...model.Rule) Option {
+	rules = append([]model.Rule(nil), rules...)
+
+	return func(cfg *settings) {
+		cfg.rules = append(cfg.rules, rules...)
 	}
 }
 

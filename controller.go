@@ -148,6 +148,9 @@ func marshalConfigurationFile(path string, obj any) ([]byte, error) {
 // non-empty. It also enables ${PREFIX}_{FULL_NAME} configuration values. Model
 // snapshots matching environment variables during controller construction.
 //
+// WithValidationRules registers custom model validation rules used during
+// initialization and Load.
+//
 // WithAppName sets the configuration file path to a well-known OS-specific user
 // config location: <user-config-dir>/<app>/config.yml.
 //
@@ -175,11 +178,17 @@ func NewControllerCtx[T any](
 
 	cfg := applyOptions(opts...)
 
-	bindingOptions := make([]model.Option, 0, 1)
+	bindingOptions := make([]model.Option, 0, 2)
 	if cfg.envPrefix != "" {
 		bindingOptions = append(
 			bindingOptions,
 			model.WithEnvPrefix(cfg.envPrefix),
+		)
+	}
+	if len(cfg.rules) > 0 {
+		bindingOptions = append(
+			bindingOptions,
+			model.WithRules(cfg.rules...),
 		)
 	}
 

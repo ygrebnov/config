@@ -90,6 +90,8 @@ Supported options are:
 - `WithEnvPrefix[T](prefix)`
   - enables environment overrides
   - also enables `${PREFIX}_CONFIG_PATH`
+- `WithValidationRules(rules...)`
+  - registers custom `github.com/ygrebnov/model` validation rules
 - `WithModel[T]()`
   - enables cached `github.com/ygrebnov/model` binding-based defaults and validation
 - `WithEnvSetStrategy[T](strategy)`
