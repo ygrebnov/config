@@ -3,3 +3,5 @@ vendor
 .idea
 .coverage
 /improvements/
+/tools/bin/
+/tools/vendor/
