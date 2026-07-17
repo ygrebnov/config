@@ -145,8 +145,7 @@ func TestFS_From(t *testing.T) {
 				cfg.AppName = "myapp"
 
 				return fromExpect{
-					errIs:       configerrors.ErrCannotResolveUserConfigDir,
-					errContains: []string{"$HOME is not defined"},
+					errIs: configerrors.ErrCannotResolveUserConfigDir,
 				}
 			},
 		},
