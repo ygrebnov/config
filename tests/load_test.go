@@ -169,7 +169,7 @@ func TestLoad_ValidationError(t *testing.T) {
 		t.Fatalf("expected ErrCannotLoadConfigurationIntoProvidedObject, got %v", err)
 	}
 
-	expectedErrorMsg := `cannot load configuration into provided object, cause: - Field "Name": rule "min": rule constraint violated (length=1)
+	expectedErrorMsg := `cannot initialize configuration object, cause: - Field "Name": rule "min": rule constraint violated (length=1)
 - Field "Port": rule "min": rule constraint violated (value=1)
 - Field "Port": rule "nonzero": rule constraint violated, rule.name: nonzero`
 	if err.Error() != expectedErrorMsg {

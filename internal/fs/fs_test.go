@@ -199,7 +199,7 @@ func TestFS_From(t *testing.T) {
 			},
 		},
 		{
-			name: "ignores missing file",
+			name: "returns not-found error for explicit missing file",
 			ctx:  context.Background,
 			setup: func(t *testing.T, dir string, cfg *Config, store *stubStore) fromExpect {
 				t.Helper()
@@ -209,6 +209,7 @@ func TestFS_From(t *testing.T) {
 
 				return fromExpect{
 					path:       path,
+					errIs:      configerrors.ErrConfigurationFileNotFound,
 					storeCalls: 0,
 				}
 			},

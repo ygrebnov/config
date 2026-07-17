@@ -3,6 +3,7 @@ package tests
 import (
 	"context"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/ygrebnov/config"
@@ -77,23 +78,23 @@ func TestController_LoadGetSetSave(t *testing.T) {
 	}
 	checkCfg(t, obj, expected)
 
-	name, ok := controller.Get("name")
+	name, ok := controller.Get("Name")
 	if !ok {
-		t.Fatalf("expected name setting to be present")
+		t.Fatalf("expected Name setting to be present")
 	}
 	if got := name.(string); got != expected.Name {
 		t.Fatalf("unexpected name, got: %v, want: %s", name, expected.Name)
 	}
 
-	// update name with type change
-	controller.Set("name", 9) // type has changed, will not be possible in ControllerTyped[T any]
+	// update name with an incompatible type
+	controller.Set("Name", []int{9}) // type has changed, will not be possible in ControllerTyped[T any]
 
-	name2, ok2 := controller.Get("name")
+	name2, ok2 := controller.Get("Name")
 	if !ok2 {
-		t.Fatalf("expected name setting to be present")
+		t.Fatalf("expected Name setting to be present")
 	}
-	if got := name2.(int); got != 9 {
-		t.Fatalf("unexpected name, got: %v, want: %d", name2, 9)
+	if got := name2.([]int); len(got) != 1 || got[0] != 9 {
+		t.Fatalf("unexpected name, got: %v, want: [9]", name2)
 	}
 
 	var obj2 cfg
@@ -108,10 +109,10 @@ func TestController_LoadGetSetSave(t *testing.T) {
 	}
 
 	// update name with changing type back to string
-	controller.Set("name", "newname")
-	name3, ok3 := controller.Get("name")
+	controller.Set("Name", "newname")
+	name3, ok3 := controller.Get("Name")
 	if !ok3 {
-		t.Fatalf("expected name setting to be present")
+		t.Fatalf("expected Name setting to be present")
 	}
 	if got := name3.(string); got != "newname" {
 		t.Fatalf("unexpected name, got: %v, want: %s", name3, "newname")
@@ -135,11 +136,36 @@ func TestController_LoadGetSetSave(t *testing.T) {
 		t.Fatalf("Save() error: %v", err)
 	}
 
-	// the file on disk is updated now.
+	// the file on disk is updated now with the normalized configuration.
 	onDisk2 := readFile(t, path)
-	expectedOnDisk2 := "name: newname\nport: 2\n"
-	if onDisk2 != expectedOnDisk2 {
-		t.Fatalf("unexpected onDisk, got: %s, want: %s", onDisk2, expectedOnDisk2)
+	if !strings.Contains(onDisk2, "name: newname\n") ||
+		!strings.Contains(onDisk2, "port: 2\n") ||
+		strings.Contains(onDisk2, "name: fromfile\n") {
+		t.Fatalf("unexpected normalized configuration: %s", onDisk2)
+	}
+}
+
+func TestController_TranslatesTaggedJSONPaths(t *testing.T) {
+	td := t.TempDir()
+	path := filepath.Join(td, "config.json")
+	writeFile(t, path, `{"name":"service","count":3,"dur":"1s"}`)
+
+	controller, err := config.NewController[smallCfg](config.WithPath(path))
+	if err != nil {
+		t.Fatalf("NewController() error: %v", err)
+	}
+
+	if value, found := controller.Get("Name"); !found || value != "service" {
+		t.Fatalf("Name = %v, %t; want service, true", value, found)
+	}
+
+	controller.Set("Name", "saved")
+	if err := controller.Save(context.Background()); err != nil {
+		t.Fatalf("Save() error: %v", err)
+	}
+
+	if saved := readFile(t, path); saved != `{"name":"saved","count":3,"dur":"1s"}` {
+		t.Fatalf("saved JSON = %s", saved)
 	}
 }
 
@@ -154,7 +180,7 @@ func TestNewController_NormalizesDefaultsIntoStore(t *testing.T) {
 		t.Fatalf("Controller constructor error: %v", err)
 	}
 
-	name, found := controller.Get("name")
+	name, found := controller.Get("Name")
 	if !found {
 		t.Fatal("expected defaulted name to be present in store")
 	}
@@ -162,7 +188,7 @@ func TestNewController_NormalizesDefaultsIntoStore(t *testing.T) {
 		t.Fatalf("expected defaulted name=fromdefault, got %v", name)
 	}
 
-	count, found := controller.Get("count")
+	count, found := controller.Get("Count")
 	if !found {
 		t.Fatal("expected defaulted count to be present in store")
 	}
@@ -190,7 +216,7 @@ func TestNewController_NormalizesDefaultsIntoStore_JSON(t *testing.T) {
 		t.Fatalf("Controller constructor error: %v", err)
 	}
 
-	name, found := controller.Get("name")
+	name, found := controller.Get("Name")
 	if !found {
 		t.Fatal("expected defaulted name to be present in store")
 	}
@@ -198,7 +224,7 @@ func TestNewController_NormalizesDefaultsIntoStore_JSON(t *testing.T) {
 		t.Fatalf("expected defaulted name=fromdefault, got %v", name)
 	}
 
-	count, found := controller.Get("count")
+	count, found := controller.Get("Count")
 	if !found {
 		t.Fatal("expected defaulted count to be present in store")
 	}
@@ -226,7 +252,7 @@ func TestNewController_NormalizesDefaultsIntoStore_NoTags(t *testing.T) {
 		t.Fatalf("Controller constructor error: %v", err)
 	}
 
-	name, found := controller.Get("name")
+	name, found := controller.Get("Name")
 	if !found {
 		t.Fatal("expected defaulted name to be present in store")
 	}
@@ -234,7 +260,7 @@ func TestNewController_NormalizesDefaultsIntoStore_NoTags(t *testing.T) {
 		t.Fatalf("expected defaulted name=fromdefault, got %v", name)
 	}
 
-	count, found := controller.Get("count")
+	count, found := controller.Get("Count")
 	if !found {
 		t.Fatal("expected defaulted count to be present in store")
 	}
@@ -267,9 +293,9 @@ func TestNewController_PreservesNestedKeysLoadedFromFile(t *testing.T) {
 		t.Fatalf("Controller constructor error: %v", err)
 	}
 
-	value, found := controller.Get("db.host")
+	value, found := controller.Get("DB.Host")
 	if !found {
-		t.Fatal("expected nested key db.host to be present in store")
+		t.Fatal("expected nested key DB.Host to be present in store")
 	}
 	if value != "localhost" {
 		t.Fatalf("expected db.host=localhost, got %v", value)
@@ -298,7 +324,7 @@ func TestNewController_NilValueIsStoredAsPresent(t *testing.T) {
 		t.Fatalf("Controller constructor error: %v", err)
 	}
 
-	value, found := controller.Get("name")
+	value, found := controller.Get("Name")
 	if !found {
 		t.Fatal("expected key with nil value to be present in store")
 	}
@@ -335,14 +361,111 @@ func TestController_GetSet_NestedOption(t *testing.T) {
 	if err := controller.Load(context.Background(), &cfg); err != nil {
 		t.Fatalf("Load() error: %v", err)
 	}
-	controller.Set("db.host", "localhost")
-	dbHost, _ := controller.Get("db.host")
+	controller.Set("DB.Host", "localhost")
+	dbHost, _ := controller.Get("DB.Host")
 	if dbHost != "localhost" {
 		t.Fatalf("nested field not set: %+v", cfg)
 	}
-	value, _ := controller.Get("db.host")
+	value, _ := controller.Get("DB.Host")
 	if value != "localhost" {
 		t.Fatalf("unexpected nested value: %v", value)
+	}
+}
+
+func TestController_TranslatesTaggedNestedCollectionPaths(t *testing.T) {
+	type item struct {
+		Name string `yaml:"name"`
+	}
+	type taggedCfg struct {
+		Name   string `yaml:"name"`
+		Server struct {
+			Host string `yaml:"host"`
+		} `yaml:"server"`
+		Items []item `yaml:"items"`
+	}
+
+	td := t.TempDir()
+	path := filepath.Join(td, "config.yaml")
+	writeFile(t, path, "name: service\nserver:\n  host: localhost\nitems:\n  - name: first\n")
+
+	controller, err := config.NewController[taggedCfg](config.WithPath(path))
+	if err != nil {
+		t.Fatalf("NewController() error: %v", err)
+	}
+
+	for _, name := range []string{"Name", "Server.Host", "Items[]"} {
+		if _, found := controller.Get(name); !found {
+			t.Fatalf("expected model path %q to be present", name)
+		}
+	}
+
+	var loaded taggedCfg
+	if err := controller.Load(context.Background(), &loaded); err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+	if loaded.Name != "service" || loaded.Server.Host != "localhost" ||
+		len(loaded.Items) != 1 || loaded.Items[0].Name != "first" {
+		t.Fatalf("unexpected loaded configuration: %+v", loaded)
+	}
+
+	controller.Set("Server.Host", "saved")
+	if err := controller.Save(context.Background()); err != nil {
+		t.Fatalf("Save() error: %v", err)
+	}
+
+	saved := readFile(t, path)
+	for _, fragment := range []string{
+		"name: service",
+		"server:\n    host: saved",
+		"items:\n    - name: first",
+	} {
+		if !strings.Contains(saved, fragment) {
+			t.Fatalf("saved configuration %q does not contain %q", saved, fragment)
+		}
+	}
+	if strings.Contains(saved, "Name:") ||
+		strings.Contains(saved, "Server:") ||
+		strings.Contains(saved, "Items[]:") {
+		t.Fatalf("saved configuration used model paths: %q", saved)
+	}
+}
+
+func TestController_PreservesYAMLOnlyAndInlineFields(t *testing.T) {
+	type inlineCfg struct {
+		Host string `yaml:"host"`
+	}
+	type taggedCfg struct {
+		Secret string    `yaml:"secret" json:"-"`
+		Inline inlineCfg `yaml:",inline"`
+	}
+
+	td := t.TempDir()
+	path := filepath.Join(td, "config.yaml")
+	writeFile(t, path, "secret: keep\nhost: localhost\n")
+
+	controller, err := config.NewController[taggedCfg](config.WithPath(path))
+	if err != nil {
+		t.Fatalf("NewController() error: %v", err)
+	}
+
+	var loaded taggedCfg
+	if err := controller.Load(context.Background(), &loaded); err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+	if loaded.Secret != "keep" || loaded.Inline.Host != "localhost" {
+		t.Fatalf("unexpected loaded configuration: %+v", loaded)
+	}
+
+	controller.Set("Inline.Host", "saved")
+	if err := controller.Save(context.Background()); err != nil {
+		t.Fatalf("Save() error: %v", err)
+	}
+
+	saved := readFile(t, path)
+	if !strings.Contains(saved, "secret: keep\n") ||
+		!strings.Contains(saved, "host: saved\n") ||
+		strings.Contains(saved, "inline:") {
+		t.Fatalf("unexpected saved YAML: %q", saved)
 	}
 }
 

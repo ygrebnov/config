@@ -22,6 +22,7 @@ type FS struct {
 	cfg     *Config
 	store   store
 	streams kitstreams.IOStreams
+	codec   *Codec
 
 	path string
 	err  error
@@ -34,8 +35,25 @@ type store interface {
 	GetJSON() ([]byte, error)
 }
 
-func New(cfg *Config, s store, streams kitstreams.IOStreams) *FS {
-	return &FS{cfg: cfg, store: s, streams: streams}
+// Codec transforms configuration-file bytes to and from the store representation.
+// It is optional so FS remains usable with stores that serialize their own keys.
+type Codec struct {
+	Decode func(path string, data []byte) error
+	Encode func(path string) ([]byte, error)
+}
+
+func New(
+	cfg *Config,
+	s store,
+	streams kitstreams.IOStreams,
+	codecs ...*Codec,
+) *FS {
+	var codec *Codec
+	if len(codecs) > 0 {
+		codec = codecs[0]
+	}
+
+	return &FS{cfg: cfg, store: s, streams: streams, codec: codec}
 }
 
 type Config struct {
@@ -103,7 +121,12 @@ func (fs *FS) From(ctx context.Context) (string, error) {
 			return
 		}
 
-		if err = fs.store.FromBytes(b); err != nil {
+		if fs.codec != nil && fs.codec.Decode != nil {
+			err = fs.codec.Decode(path, b)
+		} else {
+			err = fs.store.FromBytes(b)
+		}
+		if err != nil {
 			fs.err = errorc.With(
 				configerrors.ErrParse,
 				errorc.String(configkeys.Path, path),
@@ -176,21 +199,25 @@ func (fs *FS) To(ctx context.Context, path string) error {
 		)
 	}
 
-	ext := filepath.Ext(path)
 	var (
 		data []byte
 		e    error
 	)
-	switch ext {
-	case ".json":
-		data, e = fs.store.GetJSON()
-	default:
-		data, e = fs.store.GetYAML()
+	if fs.codec != nil && fs.codec.Encode != nil {
+		data, e = fs.codec.Encode(path)
+	} else {
+		switch filepath.Ext(path) {
+		case ".json":
+			data, e = fs.store.GetJSON()
+		default:
+			data, e = fs.store.GetYAML()
+		}
 	}
 	if e != nil {
 		return e
 	}
 
+	ext := filepath.Ext(path)
 	tmpFile, err := createTempFile(dir, "temp-config-*"+ext)
 	if err != nil {
 		return errorc.With(

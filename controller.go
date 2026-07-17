@@ -2,6 +2,10 @@ package config
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
+	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 
@@ -9,6 +13,7 @@ import (
 	"github.com/ygrebnov/errorc"
 	"github.com/ygrebnov/model"
 	"github.com/ygrebnov/model/field"
+	"gopkg.in/yaml.v3"
 
 	configerrors "github.com/ygrebnov/config/pkg/errors"
 	configkeys "github.com/ygrebnov/config/pkg/keys"
@@ -87,9 +92,366 @@ func (s storeValueSink) Set(name string, value any) error {
 		return nil
 	}
 
+	value = nilStoreValue(value)
 	s.store.Set(name, value)
 
 	return nil
+}
+
+func nilStoreValue(value any) any {
+	rv := reflect.ValueOf(value)
+	if !rv.IsValid() {
+		return nil
+	}
+
+	switch rv.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
+		if rv.IsNil() {
+			return nil
+		}
+	}
+
+	return value
+}
+
+func newModelFileCodec[T any](
+	binding *model.Binding[T],
+	store storeService,
+) *fsPkg.Codec {
+	return &fsPkg.Codec{
+		Decode: func(path string, data []byte) error {
+			obj := new(T)
+			if err := unmarshalConfigurationFile(path, data, obj); err != nil {
+				return err
+			}
+
+			return binding.WriteValues(
+				obj,
+				storeValueSink{store: store},
+			)
+		},
+		Encode: func(path string) ([]byte, error) {
+			obj := new(T)
+			if err := binding.ApplyValues(
+				obj,
+				storeValueSource{store: store},
+			); err != nil {
+				return nil, err
+			}
+
+			return marshalConfigurationFile(path, obj)
+		},
+	}
+}
+
+func unmarshalConfigurationFile(
+	path string,
+	data []byte,
+	obj any,
+) error {
+	if filepath.Ext(path) == ".json" {
+		return json.Unmarshal(data, obj)
+	}
+
+	var value any
+	if err := yaml.Unmarshal(data, &value); err != nil {
+		return err
+	}
+
+	return unmarshalYAMLValue(reflect.ValueOf(obj).Elem(), value)
+}
+
+func marshalConfigurationFile(path string, obj any) ([]byte, error) {
+	if filepath.Ext(path) == ".json" {
+		return json.Marshal(obj)
+	}
+
+	value, err := marshalYAMLValue(reflect.ValueOf(obj))
+	if err != nil {
+		return nil, err
+	}
+
+	return yaml.Marshal(value)
+}
+
+func unmarshalYAMLValue(dst reflect.Value, value any) error {
+	if value == nil {
+		dst.SetZero()
+		return nil
+	}
+
+	if dst.Kind() == reflect.Pointer {
+		if dst.IsNil() {
+			dst.Set(reflect.New(dst.Type().Elem()))
+		}
+
+		return unmarshalYAMLValue(dst.Elem(), value)
+	}
+
+	if dst.Kind() == reflect.Struct && !implementsJSONUnmarshaler(dst) {
+		values, ok := value.(map[string]any)
+		if !ok {
+			return unmarshalJSONValue(dst, value)
+		}
+
+		for i := 0; i < dst.NumField(); i++ {
+			field := dst.Type().Field(i)
+			if field.PkgPath != "" {
+				continue
+			}
+
+			name, included, inline := yamlFieldName(field)
+			if !included {
+				continue
+			}
+
+			fieldValue := dst.Field(i)
+			if inline {
+				if err := unmarshalYAMLValue(fieldValue, values); err != nil {
+					return err
+				}
+				continue
+			}
+
+			value, found := values[name]
+			if !found {
+				continue
+			}
+
+			if err := unmarshalYAMLValue(fieldValue, value); err != nil {
+				return err
+			}
+		}
+
+		return nil
+	}
+
+	switch dst.Kind() {
+	case reflect.Slice:
+		values, ok := value.([]any)
+		if !ok {
+			return unmarshalJSONValue(dst, value)
+		}
+
+		dst.Set(reflect.MakeSlice(dst.Type(), len(values), len(values)))
+		for i, item := range values {
+			if err := unmarshalYAMLValue(dst.Index(i), item); err != nil {
+				return err
+			}
+		}
+
+		return nil
+
+	case reflect.Array:
+		values, ok := value.([]any)
+		if !ok {
+			return unmarshalJSONValue(dst, value)
+		}
+
+		for i := range min(len(values), dst.Len()) {
+			if err := unmarshalYAMLValue(dst.Index(i), values[i]); err != nil {
+				return err
+			}
+		}
+
+		return nil
+
+	case reflect.Map:
+		values, ok := value.(map[string]any)
+		if !ok {
+			return unmarshalJSONValue(dst, value)
+		}
+
+		dst.Set(reflect.MakeMapWithSize(dst.Type(), len(values)))
+		for key, item := range values {
+			mapKey, err := yamlMapKey(dst.Type().Key(), key)
+			if err != nil {
+				return err
+			}
+
+			mapValue := reflect.New(dst.Type().Elem()).Elem()
+			if err := unmarshalYAMLValue(mapValue, item); err != nil {
+				return err
+			}
+
+			dst.SetMapIndex(mapKey, mapValue)
+		}
+
+		return nil
+	}
+
+	return unmarshalJSONValue(dst, value)
+}
+
+func marshalYAMLValue(src reflect.Value) (any, error) {
+	if src.Kind() == reflect.Pointer {
+		if src.IsNil() {
+			return nil, nil
+		}
+
+		return marshalYAMLValue(src.Elem())
+	}
+
+	if implementsJSONMarshaler(src) {
+		return marshalJSONValue(src)
+	}
+
+	switch src.Kind() {
+	case reflect.Struct:
+		values := make(map[string]any)
+		for i := 0; i < src.NumField(); i++ {
+			field := src.Type().Field(i)
+			if field.PkgPath != "" {
+				continue
+			}
+
+			name, included, inline := yamlFieldName(field)
+			if !included {
+				continue
+			}
+
+			fieldValue := src.Field(i)
+			if yamlTagOption(field, "omitempty") && fieldValue.IsZero() {
+				continue
+			}
+
+			value, err := marshalYAMLValue(fieldValue)
+			if err != nil {
+				return nil, err
+			}
+
+			if inline {
+				if value == nil {
+					continue
+				}
+
+				nestedValues, ok := value.(map[string]any)
+				if !ok {
+					return nil, fmt.Errorf(
+						"marshal inline YAML field %s as a mapping",
+						field.Name,
+					)
+				}
+
+				for key, nested := range nestedValues {
+					values[key] = nested
+				}
+				continue
+			}
+
+			values[name] = value
+		}
+
+		return values, nil
+
+	case reflect.Slice, reflect.Array:
+		values := make([]any, src.Len())
+		for i := 0; i < src.Len(); i++ {
+			value, err := marshalYAMLValue(src.Index(i))
+			if err != nil {
+				return nil, err
+			}
+			values[i] = value
+		}
+
+		return values, nil
+
+	case reflect.Map:
+		values := make(map[string]any, src.Len())
+		iter := src.MapRange()
+		for iter.Next() {
+			value, err := marshalYAMLValue(iter.Value())
+			if err != nil {
+				return nil, err
+			}
+			values[fmt.Sprint(iter.Key().Interface())] = value
+		}
+
+		return values, nil
+
+	default:
+		return src.Interface(), nil
+	}
+}
+
+func unmarshalJSONValue(dst reflect.Value, value any) error {
+	data, err := json.Marshal(value)
+	if err != nil {
+		return err
+	}
+
+	return json.Unmarshal(data, dst.Addr().Interface())
+}
+
+func marshalJSONValue(src reflect.Value) (any, error) {
+	data, err := json.Marshal(src.Interface())
+	if err != nil {
+		return nil, err
+	}
+
+	var value any
+	if err := json.Unmarshal(data, &value); err != nil {
+		return nil, err
+	}
+
+	return value, nil
+}
+
+func yamlMapKey(t reflect.Type, value string) (reflect.Value, error) {
+	key := reflect.New(t).Elem()
+	if t.Kind() == reflect.String {
+		key.SetString(value)
+		return key, nil
+	}
+
+	if err := unmarshalJSONValue(key, value); err != nil {
+		return reflect.Value{}, err
+	}
+
+	return key, nil
+}
+
+func implementsJSONUnmarshaler(v reflect.Value) bool {
+	jsonUnmarshaler := reflect.TypeFor[json.Unmarshaler]()
+	return v.CanAddr() && v.Addr().Type().Implements(jsonUnmarshaler)
+}
+
+func implementsJSONMarshaler(v reflect.Value) bool {
+	jsonMarshaler := reflect.TypeFor[json.Marshaler]()
+	return v.CanInterface() && v.Type().Implements(jsonMarshaler)
+}
+
+func yamlFieldName(
+	field reflect.StructField,
+) (name string, included bool, inline bool) {
+	tag := field.Tag.Get("yaml")
+	parts := strings.Split(tag, ",")
+	if parts[0] == "-" {
+		return "", false, false
+	}
+
+	for _, option := range parts[1:] {
+		if option == "inline" {
+			inline = true
+		}
+	}
+
+	name = parts[0]
+	if name == "" {
+		name = strings.ToLower(field.Name)
+	}
+
+	return name, true, inline
+}
+
+func yamlTagOption(field reflect.StructField, option string) bool {
+	for _, value := range strings.Split(field.Tag.Get("yaml"), ",")[1:] {
+		if value == option {
+			return true
+		}
+	}
+
+	return false
 }
 
 // NewController constructs a controller configured with the provided options.
@@ -160,6 +522,7 @@ func NewControllerCtx[T any](
 		fsCfg,
 		loadedStore,
 		cfg.streams,
+		newModelFileCodec(binding, loadedStore),
 	)
 
 	path, err := loader.From(ctx)
@@ -192,6 +555,7 @@ func NewControllerCtx[T any](
 		fsCfg,
 		store,
 		cfg.streams,
+		newModelFileCodec(binding, store),
 	)
 
 	return &Controller[T]{
