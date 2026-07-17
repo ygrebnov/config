@@ -2,12 +2,14 @@ package tests
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/ygrebnov/config"
 	"github.com/ygrebnov/config/pkg/errors"
+	pathPkg "github.com/ygrebnov/config/pkg/path"
 )
 
 func TestController(t *testing.T) {
@@ -142,6 +144,41 @@ func TestController_LoadGetSetSave(t *testing.T) {
 		!strings.Contains(onDisk2, "port: 2\n") ||
 		strings.Contains(onDisk2, "name: fromfile\n") {
 		t.Fatalf("unexpected normalized configuration: %s", onDisk2)
+	}
+}
+
+func TestController_AppNameCreatesAndReloadsConfig(t *testing.T) {
+	const appName = "test-app"
+
+	configHome := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", configHome)
+
+	first, err := config.NewController[smallCfg](config.WithAppName(appName))
+	if err != nil {
+		t.Fatalf("first NewController() error: %v", err)
+	}
+
+	first.Set("Name", "persisted")
+	if err := first.Save(context.Background()); err != nil {
+		t.Fatalf("first Save() error: %v", err)
+	}
+
+	path := filepath.Join(configHome, appName, pathPkg.DefaultConfigFilename)
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("expected config file at %q: %v", path, err)
+	}
+
+	second, err := config.NewController[smallCfg](config.WithAppName(appName))
+	if err != nil {
+		t.Fatalf("second NewController() error: %v", err)
+	}
+
+	var loaded smallCfg
+	if err := second.Load(context.Background(), &loaded); err != nil {
+		t.Fatalf("second Load() error: %v", err)
+	}
+	if loaded.Name != "persisted" {
+		t.Fatalf("loaded Name = %q, want %q", loaded.Name, "persisted")
 	}
 }
 

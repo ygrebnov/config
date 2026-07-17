@@ -20,40 +20,15 @@ import (
 type FS struct {
 	once    sync.Once
 	cfg     *Config
-	store   store
 	streams kitstreams.IOStreams
-	codec   *Codec
 
 	path string
+	data []byte
 	err  error
 }
 
-type store interface {
-	FromBytes(b []byte) error
-
-	GetYAML() ([]byte, error)
-	GetJSON() ([]byte, error)
-}
-
-// Codec transforms configuration-file bytes to and from the store representation.
-// It is optional so FS remains usable with stores that serialize their own keys.
-type Codec struct {
-	Decode func(path string, data []byte) error
-	Encode func(path string) ([]byte, error)
-}
-
-func New(
-	cfg *Config,
-	s store,
-	streams kitstreams.IOStreams,
-	codecs ...*Codec,
-) *FS {
-	var codec *Codec
-	if len(codecs) > 0 {
-		codec = codecs[0]
-	}
-
-	return &FS{cfg: cfg, store: s, streams: streams, codec: codec}
+func New(cfg *Config, streams kitstreams.IOStreams) *FS {
+	return &FS{cfg: cfg, streams: streams}
 }
 
 type Config struct {
@@ -76,14 +51,13 @@ var (
 	renameFile = os.Rename
 )
 
-func (fs *FS) From(ctx context.Context) (string, error) {
+func (fs *FS) From(ctx context.Context) (string, []byte, error) {
 	if err := ctx.Err(); err != nil {
-		return "", err
+		return "", nil, err
 	}
 
 	fs.once.Do(func() {
 		var (
-			b                   []byte
 			path                string
 			err                 error
 			returnOnErrNotExist bool
@@ -106,7 +80,7 @@ func (fs *FS) From(ctx context.Context) (string, error) {
 		}
 		fs.path = path
 
-		b, err = fs.fromFile(path)
+		fs.data, err = fs.fromFile(path)
 		if err != nil {
 			if errors.Is(err, os.ErrNotExist) {
 				if returnOnErrNotExist {
@@ -121,24 +95,18 @@ func (fs *FS) From(ctx context.Context) (string, error) {
 			return
 		}
 
-		if fs.codec != nil && fs.codec.Decode != nil {
-			err = fs.codec.Decode(path, b)
-		} else {
-			err = fs.store.FromBytes(b)
-		}
-		if err != nil {
-			fs.err = errorc.With(
-				configerrors.ErrParse,
-				errorc.String(configkeys.Path, path),
-				errorc.Error(configkeys.Cause, err),
-			)
-			return
-		}
-
 		_, _ = fmt.Fprintf(fs.streams.Out(), "Loaded configuration from %s\n", path)
 	})
 
-	return fs.path, fs.err
+	return fs.path, cloneBytes(fs.data), fs.err
+}
+
+func cloneBytes(data []byte) []byte {
+	if data == nil {
+		return nil
+	}
+
+	return append([]byte{}, data...)
 }
 
 func (fs *FS) fromFile(path string) ([]byte, error) {
@@ -181,7 +149,7 @@ func validatePath(path string) error {
 	return nil
 }
 
-func (fs *FS) To(ctx context.Context, path string) error {
+func (fs *FS) To(ctx context.Context, path string, data []byte) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -197,24 +165,6 @@ func (fs *FS) To(ctx context.Context, path string) error {
 			errorc.String(configkeys.Path, path),
 			errorc.Error(configkeys.Cause, err),
 		)
-	}
-
-	var (
-		data []byte
-		e    error
-	)
-	if fs.codec != nil && fs.codec.Encode != nil {
-		data, e = fs.codec.Encode(path)
-	} else {
-		switch filepath.Ext(path) {
-		case ".json":
-			data, e = fs.store.GetJSON()
-		default:
-			data, e = fs.store.GetYAML()
-		}
-	}
-	if e != nil {
-		return e
 	}
 
 	ext := filepath.Ext(path)
