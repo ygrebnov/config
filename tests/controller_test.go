@@ -190,9 +190,9 @@ func TestController_AppNameCreatesAndReloadsConfig(t *testing.T) {
 	}
 }
 
-func TestController_LoadAppliesCustomValidationRule(t *testing.T) {
+func TestController_CustomValidationRuleRejectsInvalidState(t *testing.T) {
 	type ruleCfg struct {
-		Name string `default:"allowed" validate:"allowed_name"`
+		Name string `yaml:"name" default:"allowed" validate:"allowed_name"`
 	}
 
 	rule, err := model.NewRule[string](
@@ -209,7 +209,11 @@ func TestController_LoadAppliesCustomValidationRule(t *testing.T) {
 		t.Fatalf("NewRule() error: %v", err)
 	}
 
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	writeFile(t, path, "name: allowed\n")
+
 	controller, err := config.NewController[ruleCfg](
+		config.WithPath(path),
 		config.WithValidationRules(rule),
 	)
 	if err != nil {
@@ -217,6 +221,19 @@ func TestController_LoadAppliesCustomValidationRule(t *testing.T) {
 	}
 
 	controller.Set("Name", "invalid")
+
+	err = controller.Validate(context.Background())
+	if err == nil || !strings.Contains(err.Error(), `name "invalid" is not allowed`) {
+		t.Fatalf("expected custom rule validation error, got %v", err)
+	}
+
+	err = controller.Save(context.Background())
+	if err == nil || !strings.Contains(err.Error(), `name "invalid" is not allowed`) {
+		t.Fatalf("expected custom rule save error, got %v", err)
+	}
+	if saved := readFile(t, path); saved != "name: allowed\n" {
+		t.Fatalf("Save() wrote invalid configuration: %q", saved)
+	}
 
 	var loaded ruleCfg
 	err = controller.Load(context.Background(), &loaded)

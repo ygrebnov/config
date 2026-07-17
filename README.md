@@ -71,6 +71,7 @@ first completed result.
 It supports:
 
 - `Load(ctx, &cfg)`
+- `Validate(ctx)`
 - `Get("DB.Host")`
 - `Set("DB.Host", value)`
 - `Save(ctx)`
@@ -158,6 +159,9 @@ the first issue when multiple field issues are present.
 
 `Controller.Get` and `Controller.Set` use exact exported model paths. `Get`
 returns `ErrConfigurationOptionNotFound` for an unknown path.
+
+`Set` does not validate an updated value. Call `Validate(ctx)` after a batch of
+updates for immediate feedback; `Save(ctx)` validates before writing the file.
 
 Examples:
 

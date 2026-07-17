@@ -296,6 +296,36 @@ func loadError(err error) error {
 	)
 }
 
+// Validate checks the controller's current configuration state.
+func (c *Controller[T]) Validate(ctx context.Context) error {
+	if ctx == nil {
+		return configerrors.ErrNilContext
+	}
+
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	obj, err := c.configurationObject()
+	if err != nil {
+		return err
+	}
+
+	return c.binding.Validate(ctx, obj)
+}
+
+func (c *Controller[T]) configurationObject() (*T, error) {
+	obj := new(T)
+	if err := c.binding.ApplyValues(
+		obj,
+		storeValueSource{store: c.store},
+	); err != nil {
+		return nil, err
+	}
+
+	return obj, nil
+}
+
 // Get returns a configuration option value by exact exported model path.
 //
 // It returns ErrConfigurationOptionNotFound when name is not a known path.
@@ -314,7 +344,8 @@ func (c *Controller[T]) Get(name string) (any, error) {
 
 // Set updates a configuration option value by exact exported model path.
 //
-// The value is updated only in the internal store. Call Save to persist it.
+// Set does not validate the value. Call Validate after one or more updates to
+// check the controller state. Save also validates before persisting.
 func (c *Controller[T]) Set(name string, value any) {
 	c.store.Set(name, value)
 }
@@ -363,11 +394,11 @@ func (c *Controller[T]) Save(
 		return configerrors.ErrPathNotConfigured
 	}
 
-	obj := new(T)
-	if err := c.binding.ApplyValues(
-		obj,
-		storeValueSource{store: c.store},
-	); err != nil {
+	obj, err := c.configurationObject()
+	if err != nil {
+		return err
+	}
+	if err := c.binding.Validate(ctx, obj); err != nil {
 		return err
 	}
 
