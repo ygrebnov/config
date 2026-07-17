@@ -5,21 +5,18 @@ import (
 )
 
 type Store struct {
-	mu   sync.RWMutex
-	kv   map[string]any // to read/write settings by their names.
-	tree *node          // to facilitate marshaling.
+	mu sync.RWMutex
+	kv map[string]any
 }
 
 func New() *Store {
-	return &Store{kv: make(map[string]any), tree: &node{}}
+	return &Store{kv: make(map[string]any)}
 }
 
 func (s *Store) Set(key string, value any) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-
 	s.kv[key] = value
-	s.tree.add(key)
 }
 
 func (s *Store) Get(key string) (any, bool) {
