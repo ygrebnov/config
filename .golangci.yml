@@ -1,0 +1,125 @@
+run:
+  timeout: 5m
+
+output:
+  formats:
+    - format: colored-line-number
+
+linters:
+  disable-all: true
+  enable:
+    - bodyclose
+    - copyloopvar
+    - depguard
+    - dogsled
+    - dupl
+    - durationcheck
+    - errcheck
+    - funlen
+    - gci
+    - goconst
+    - gocritic
+    - gocyclo
+    - gofmt
+    - goimports
+    - gomoddirectives
+    - gosec
+    - gosimple
+    - govet
+    - importas
+    - ineffassign
+    - lll
+    - misspell
+    - nakedret
+    - nilerr
+    - noctx
+    - nolintlint
+    - prealloc
+    - predeclared
+    - revive
+    - staticcheck
+    - stylecheck
+    - tparallel
+    - typecheck
+    - unconvert
+    - unparam
+    - unused
+    - wastedassign
+    - whitespace
+
+linters-settings:
+  depguard:
+    rules:
+      main:
+        deny:
+          - pkg: "github.com/pkg/errors"
+            desc: Use `errors` package from the standard library
+  dupl:
+    threshold: 100
+  funlen:
+    ignore-comments: true
+    lines: 100
+  gci:
+    sections:
+      - standard
+      - default
+      - prefix(github.com/ygrebnov/config)
+  goconst:
+    min-len: 2
+    min-occurrences: 2
+  gocritic:
+    enabled-tags:
+      - diagnostic
+      - style
+      - performance
+      - experimental
+      - opinionated
+  gocyclo:
+    min-complexity: 15
+  goimports:
+    local-prefixes: github.com/ygrebnov/config
+  gosec:
+    exclude-generated: true
+    excludes:
+      - G115
+  govet:
+    enable:
+      - shadow
+
+issues:
+  exclude-dirs:
+    - vendor
+  exclude-rules:
+    # Relax checks for standard _test.go files across the repo.
+    - path: _test.go
+      linters:
+        - dogsled
+        - dupl
+        - goconst
+        - gocritic
+        - gocyclo
+        - gosec
+        - gosimple
+        - funlen
+        - govet
+        - lll
+        - staticcheck
+        - revive
+        - unparam
+    # Relax checks for helper code living under tests/ (some files don’t end with _test.go).
+    - path: ^tests/
+      linters:
+        - dogsled
+        - dupl
+        - gocyclo
+        - gosec
+        - gosimple
+        - funlen
+        - govet
+        - lll
+        - staticcheck
+        - revive
+    - path: ^internal/core/service_set_defaults\.go$
+      text: "hugeParam: field is heavy"
+      linters:
+        - gocritic

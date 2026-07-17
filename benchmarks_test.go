@@ -6,7 +6,20 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/ygrebnov/config/pkg/types"
 )
+
+type tinyCfg struct {
+	Name string `yaml:"name" env:"NAME" default:"svc" validate:"min(1)"`
+	Port int    `yaml:"port" env:"PORT" default:"8080" validate:"min(1),nonzero"`
+}
+
+type smallCfg struct {
+	Name  string         `json:"name" yaml:"name" env:"NAME"`
+	Count int            `json:"count" yaml:"count" env:"COUNT"`
+	Dur   types.Duration `json:"dur" yaml:"dur" env:"DUR"`
+}
 
 type mediumCfg struct {
 	Name      string        `yaml:"name" env:"NAME"`
@@ -64,7 +77,7 @@ func BenchmarkLoad_Medium_WithEnv(b *testing.B) {
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
 		var cfg mediumCfg
-		if err := Load(context.Background(), &cfg, WithEnvPrefix[mediumCfg]("BM")); err != nil {
+		if err := Load(context.Background(), &cfg, WithEnvPrefix("BM")); err != nil {
 			b.Fatalf("Load error: %v", err)
 		}
 		sinkMediumCfg = &cfg
@@ -76,7 +89,7 @@ func BenchmarkLoad_Medium_NoEnv(b *testing.B) {
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
 		var cfg mediumCfg
-		if err := Load(context.Background(), &cfg, WithEnvPrefix[mediumCfg]("BM")); err != nil {
+		if err := Load(context.Background(), &cfg, WithEnvPrefix("BM")); err != nil {
 			b.Fatalf("Load error: %v", err)
 		}
 		sinkMediumCfg = &cfg
@@ -88,10 +101,9 @@ func BenchmarkLoad_Model_WithEnv(b *testing.B) {
 	b.Setenv("BMM_PORT", "9090")
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
-		var cfg mCfg
+		var cfg tinyCfg
 		if err := Load(context.Background(), &cfg,
-			WithEnvPrefix[mCfg]("BMM"),
-			WithModel[mCfg](),
+			WithEnvPrefix("BMM"),
 		); err != nil {
 			b.Fatalf("Load error: %v", err)
 		}
@@ -126,9 +138,8 @@ func BenchmarkLoad_Full(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		var cfg mediumCfg
 		if err := Load(context.Background(), &cfg,
-			WithPath[mediumCfg](path),
-			WithEnvPrefix[mediumCfg](prefix),
-			WithModel[mediumCfg](),
+			WithPath(path),
+			WithEnvPrefix(prefix),
 		); err != nil {
 			b.Fatalf("Load full error: %v", err)
 		}
@@ -141,8 +152,11 @@ func BenchmarkController_GetSetSave(b *testing.B) {
 	if err := os.WriteFile(path, []byte("name: fromfile\ncount: 2\n"), 0o600); err != nil {
 		b.Fatalf("write file: %v", err)
 	}
-	controller := NewController[testCfg2](WithPath[testCfg2](path))
-	cfg := testCfg2{}
+	controller, err := NewController[smallCfg](WithPath(path))
+	if err != nil {
+		b.Fatalf("NewController: %v", err)
+	}
+	cfg := smallCfg{}
 	if err := controller.Load(context.Background(), &cfg); err != nil {
 		b.Fatalf("controller load: %v", err)
 	}
@@ -150,9 +164,9 @@ func BenchmarkController_GetSetSave(b *testing.B) {
 	b.Run("Get", func(b *testing.B) {
 		b.ReportAllocs()
 		for i := 0; i < b.N; i++ {
-			value, err := controller.Get("name")
+			value, err := controller.Get("Name")
 			if err != nil {
-				b.Fatalf("Get error: %v", err)
+				b.Fatalf("Get: %v", err)
 			}
 			sinkAny = value
 		}
@@ -161,22 +175,17 @@ func BenchmarkController_GetSetSave(b *testing.B) {
 	b.Run("Set", func(b *testing.B) {
 		b.ReportAllocs()
 		for i := 0; i < b.N; i++ {
-			if err := controller.Set("count", i); err != nil {
-				b.Fatalf("Set error: %v", err)
-			}
+			controller.Set("Count", i)
 		}
 	})
 
 	b.Run("Save", func(b *testing.B) {
 		b.ReportAllocs()
 		for i := 0; i < b.N; i++ {
-			if err := controller.Set("count", i); err != nil {
-				b.Fatalf("Set before save error: %v", err)
-			}
+			controller.Set("Count", i)
 			if err := controller.Save(context.Background()); err != nil {
 				b.Fatalf("Save error: %v", err)
 			}
 		}
 	})
 }
-
