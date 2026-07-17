@@ -8,8 +8,8 @@
 //
 //	controller := NewController[Cfg](opts...)
 //	controller.Load(ctx, &cfg)
-//	controller.Get("db.host")
-//	controller.Set("db.host", "localhost")
+//	controller.Get("DB.Host")
+//	controller.Set("DB.Host", "localhost")
 //	controller.Save(ctx)
 //
 // for interactive read/update/save flows.

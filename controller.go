@@ -288,8 +288,19 @@ func loadError(err error) error {
 }
 
 // Get returns a configuration option value by exact exported model path.
-func (c *Controller[T]) Get(name string) (any, bool) {
-	return c.store.Get(name)
+//
+// It returns ErrConfigurationOptionNotFound when name is not a known path.
+// A configuration option with a nil value is returned as nil with no error.
+func (c *Controller[T]) Get(name string) (any, error) {
+	value, found := c.store.Get(name)
+	if found {
+		return value, nil
+	}
+
+	return nil, errorc.With(
+		configerrors.ErrConfigurationOptionNotFound,
+		errorc.String(configkeys.OptionPath, name),
+	)
 }
 
 // Set updates a configuration option value by exact exported model path.

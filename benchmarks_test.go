@@ -164,9 +164,9 @@ func BenchmarkController_GetSetSave(b *testing.B) {
 	b.Run("Get", func(b *testing.B) {
 		b.ReportAllocs()
 		for i := 0; i < b.N; i++ {
-			value, ok := controller.Get("name")
-			if !ok {
-				b.Fatalf("option not found")
+			value, err := controller.Get("Name")
+			if err != nil {
+				b.Fatalf("Get: %v", err)
 			}
 			sinkAny = value
 		}
@@ -175,14 +175,14 @@ func BenchmarkController_GetSetSave(b *testing.B) {
 	b.Run("Set", func(b *testing.B) {
 		b.ReportAllocs()
 		for i := 0; i < b.N; i++ {
-			controller.Set("count", i)
+			controller.Set("Count", i)
 		}
 	})
 
 	b.Run("Save", func(b *testing.B) {
 		b.ReportAllocs()
 		for i := 0; i < b.N; i++ {
-			controller.Set("count", i)
+			controller.Set("Count", i)
 			if err := controller.Save(context.Background()); err != nil {
 				b.Fatalf("Save error: %v", err)
 			}

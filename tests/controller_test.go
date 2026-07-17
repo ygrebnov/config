@@ -12,6 +12,21 @@ import (
 	pathPkg "github.com/ygrebnov/config/pkg/path"
 )
 
+func getControllerValue[T any](
+	t *testing.T,
+	controller *config.Controller[T],
+	name string,
+) any {
+	t.Helper()
+
+	value, err := controller.Get(name)
+	if err != nil {
+		t.Fatalf("Get(%q) error: %v", name, err)
+	}
+
+	return value
+}
+
 func TestController(t *testing.T) {
 	tests := []struct {
 		name                     string
@@ -80,10 +95,7 @@ func TestController_LoadGetSetSave(t *testing.T) {
 	}
 	checkCfg(t, obj, expected)
 
-	name, ok := controller.Get("Name")
-	if !ok {
-		t.Fatalf("expected Name setting to be present")
-	}
+	name := getControllerValue(t, controller, "Name")
 	if got := name.(string); got != expected.Name {
 		t.Fatalf("unexpected name, got: %v, want: %s", name, expected.Name)
 	}
@@ -91,10 +103,7 @@ func TestController_LoadGetSetSave(t *testing.T) {
 	// update name with an incompatible type
 	controller.Set("Name", []int{9}) // type has changed, will not be possible in ControllerTyped[T any]
 
-	name2, ok2 := controller.Get("Name")
-	if !ok2 {
-		t.Fatalf("expected Name setting to be present")
-	}
+	name2 := getControllerValue(t, controller, "Name")
 	if got := name2.([]int); len(got) != 1 || got[0] != 9 {
 		t.Fatalf("unexpected name, got: %v, want: [9]", name2)
 	}
@@ -112,10 +121,7 @@ func TestController_LoadGetSetSave(t *testing.T) {
 
 	// update name with changing type back to string
 	controller.Set("Name", "newname")
-	name3, ok3 := controller.Get("Name")
-	if !ok3 {
-		t.Fatalf("expected Name setting to be present")
-	}
+	name3 := getControllerValue(t, controller, "Name")
 	if got := name3.(string); got != "newname" {
 		t.Fatalf("unexpected name, got: %v, want: %s", name3, "newname")
 	}
@@ -192,8 +198,8 @@ func TestController_TranslatesTaggedJSONPaths(t *testing.T) {
 		t.Fatalf("NewController() error: %v", err)
 	}
 
-	if value, found := controller.Get("Name"); !found || value != "service" {
-		t.Fatalf("Name = %v, %t; want service, true", value, found)
+	if value := getControllerValue(t, controller, "Name"); value != "service" {
+		t.Fatalf("Name = %v, want service", value)
 	}
 
 	controller.Set("Name", "saved")
@@ -217,18 +223,12 @@ func TestNewController_NormalizesDefaultsIntoStore(t *testing.T) {
 		t.Fatalf("Controller constructor error: %v", err)
 	}
 
-	name, found := controller.Get("Name")
-	if !found {
-		t.Fatal("expected defaulted name to be present in store")
-	}
+	name := getControllerValue(t, controller, "Name")
 	if name != "fromdefault" {
 		t.Fatalf("expected defaulted name=fromdefault, got %v", name)
 	}
 
-	count, found := controller.Get("Count")
-	if !found {
-		t.Fatal("expected defaulted count to be present in store")
-	}
+	count := getControllerValue(t, controller, "Count")
 	if count != 7 {
 		t.Fatalf("expected defaulted count=7, got %v", count)
 	}
@@ -253,18 +253,12 @@ func TestNewController_NormalizesDefaultsIntoStore_JSON(t *testing.T) {
 		t.Fatalf("Controller constructor error: %v", err)
 	}
 
-	name, found := controller.Get("Name")
-	if !found {
-		t.Fatal("expected defaulted name to be present in store")
-	}
+	name := getControllerValue(t, controller, "Name")
 	if name != "fromdefault" {
 		t.Fatalf("expected defaulted name=fromdefault, got %v", name)
 	}
 
-	count, found := controller.Get("Count")
-	if !found {
-		t.Fatal("expected defaulted count to be present in store")
-	}
+	count := getControllerValue(t, controller, "Count")
 	if count != 7 {
 		t.Fatalf("expected defaulted count=7, got %v", count)
 	}
@@ -289,18 +283,12 @@ func TestNewController_NormalizesDefaultsIntoStore_NoTags(t *testing.T) {
 		t.Fatalf("Controller constructor error: %v", err)
 	}
 
-	name, found := controller.Get("Name")
-	if !found {
-		t.Fatal("expected defaulted name to be present in store")
-	}
+	name := getControllerValue(t, controller, "Name")
 	if name != "fromdefault" {
 		t.Fatalf("expected defaulted name=fromdefault, got %v", name)
 	}
 
-	count, found := controller.Get("Count")
-	if !found {
-		t.Fatal("expected defaulted count to be present in store")
-	}
+	count := getControllerValue(t, controller, "Count")
 	if count != 7 {
 		t.Fatalf("expected defaulted count=7, got %v", count)
 	}
@@ -330,10 +318,7 @@ func TestNewController_PreservesNestedKeysLoadedFromFile(t *testing.T) {
 		t.Fatalf("Controller constructor error: %v", err)
 	}
 
-	value, found := controller.Get("DB.Host")
-	if !found {
-		t.Fatal("expected nested key DB.Host to be present in store")
-	}
+	value := getControllerValue(t, controller, "DB.Host")
 	if value != "localhost" {
 		t.Fatalf("expected db.host=localhost, got %v", value)
 	}
@@ -361,16 +346,13 @@ func TestNewController_NilValueIsStoredAsPresent(t *testing.T) {
 		t.Fatalf("Controller constructor error: %v", err)
 	}
 
-	value, found := controller.Get("Name")
-	if !found {
-		t.Fatal("expected key with nil value to be present in store")
-	}
+	value := getControllerValue(t, controller, "Name")
 	if value != nil {
 		t.Fatalf("expected name to be nil, got %v", value)
 	}
 
-	if _, found := controller.Get("missing"); found {
-		t.Fatal("expected missing key to be absent from store")
+	if _, err := controller.Get("missing"); !errors.Is(err, errors.ErrConfigurationOptionNotFound) {
+		t.Fatalf("expected ErrConfigurationOptionNotFound, got %v", err)
 	}
 
 	loaded := nullableCfg{}
@@ -399,11 +381,11 @@ func TestController_GetSet_NestedOption(t *testing.T) {
 		t.Fatalf("Load() error: %v", err)
 	}
 	controller.Set("DB.Host", "localhost")
-	dbHost, _ := controller.Get("DB.Host")
+	dbHost := getControllerValue(t, controller, "DB.Host")
 	if dbHost != "localhost" {
 		t.Fatalf("nested field not set: %+v", cfg)
 	}
-	value, _ := controller.Get("DB.Host")
+	value := getControllerValue(t, controller, "DB.Host")
 	if value != "localhost" {
 		t.Fatalf("unexpected nested value: %v", value)
 	}
@@ -431,9 +413,7 @@ func TestController_TranslatesTaggedNestedCollectionPaths(t *testing.T) {
 	}
 
 	for _, name := range []string{"Name", "Server.Host", "Items[]"} {
-		if _, found := controller.Get(name); !found {
-			t.Fatalf("expected model path %q to be present", name)
-		}
+		_ = getControllerValue(t, controller, name)
 	}
 
 	var loaded taggedCfg
@@ -530,8 +510,8 @@ func TestController_OptionNotFound(t *testing.T) {
 	if err := controller.Load(context.Background(), &cfg); err != nil {
 		t.Fatalf("Load() error: %v", err)
 	}
-	if _, found := controller.Get("missing"); found {
-		t.Fatalf("expected Get() to not find 'missing', but it did")
+	if _, err := controller.Get("missing"); !errors.Is(err, errors.ErrConfigurationOptionNotFound) {
+		t.Fatalf("expected ErrConfigurationOptionNotFound, got %v", err)
 	}
 }
 
@@ -550,12 +530,10 @@ func TestController_Concurrent_LoadGetSet(t *testing.T) {
 				t.Errorf("Load() error: %v", err)
 				return
 			}
-			if _, err := controller.Get("name"); err != nil {
+			if _, err := controller.Get("Name"); err != nil {
 				t.Errorf("Get() error: %v", err)
 			}
-			if err := controller.Set("count", i); err != nil {
-				t.Errorf("Set() error: %v", err)
-			}
+			controller.Set("Count", i)
 		}(i)
 	}
 	wg.Wait()

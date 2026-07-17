@@ -32,7 +32,7 @@ var (
 	ErrPathNotConfigured = namespace.NewError("config path is not configured")
 	// ErrControllerNotLoaded is returned when controller operations require a prior successful Load call.
 	ErrControllerNotLoaded = namespace.NewError("controller is not loaded")
-	// ErrConfigurationOptionNotFound is returned when a dotted option path does not map to a known config field.
+	// ErrConfigurationOptionNotFound is returned when a model path does not map to a stored config field.
 	ErrConfigurationOptionNotFound = namespace.NewError("config option not found")
 	// ErrOptionNotSettable is returned when a config option path resolves to a value that cannot be updated.
 	ErrOptionNotSettable = namespace.NewError("config option is not settable")

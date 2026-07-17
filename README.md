@@ -42,9 +42,7 @@ if err := controller.Load(ctx, &cfg); err != nil {
     return err
 }
 
-if err := controller.Set("port", 9090); err != nil {
-    return err
-}
+controller.Set("Port", 9090)
 
 if err := controller.Save(ctx); err != nil {
     return err
@@ -73,8 +71,8 @@ first completed result.
 It supports:
 
 - `Load(ctx, &cfg)`
-- `Get("db.host")`
-- `Set("db.host", value)`
+- `Get("DB.Host")`
+- `Set("DB.Host", value)`
 - `Save(ctx)`
 
 Use `Controller` when you want mutable configuration with explicit persistence,
@@ -156,19 +154,15 @@ the first issue when multiple field issues are present.
 
 ## Controller option paths
 
-`Controller.Get` and `Controller.Set` use dotted option paths derived from field
-metadata in this order:
-
-1. `yaml` tag
-2. `json` tag
-3. field name
+`Controller.Get` and `Controller.Set` use exact exported model paths. `Get`
+returns `ErrConfigurationOptionNotFound` for an unknown path.
 
 Examples:
 
-- `name`
-- `port`
-- `db.host`
-- `ratelimit.max_conn`
+- `Name`
+- `Port`
+- `DB.Host`
+- `RateLimit.MaxConn`
 
 ## Try it
 
