@@ -3,14 +3,14 @@ package fs
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
-	kitstreams "github.com/pumpingbytes/go-kit/streams"
-
 	configerrors "github.com/ygrebnov/config/pkg/errors"
+	"github.com/ygrebnov/config/pkg/log"
 )
 
 type stubTempFile struct {
@@ -89,7 +89,7 @@ func TestFS_From(t *testing.T) {
 				return fromExpect{
 					path: explicitPath,
 					data: "name: explicit\n",
-					out:  "Loaded configuration from " + explicitPath + "\n",
+					out:  "loaded configuration, path=" + explicitPath,
 				}
 			},
 		},
@@ -112,7 +112,7 @@ func TestFS_From(t *testing.T) {
 				return fromExpect{
 					path: envPath,
 					data: "{}\n",
-					out:  "Loaded configuration from " + envPath + "\n",
+					out:  "loaded configuration, path=" + envPath,
 				}
 			},
 		},
@@ -130,7 +130,7 @@ func TestFS_From(t *testing.T) {
 				return fromExpect{
 					path: appPath,
 					data: "name: app\n",
-					out:  "Loaded configuration from " + appPath + "\n",
+					out:  "loaded configuration, path=" + appPath,
 				}
 			},
 		},
@@ -183,7 +183,7 @@ func TestFS_From(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			dir := t.TempDir()
 			cfg := &Config{}
-			streams := kitstreams.NewBuffers()
+			logger := &testLogger{}
 			want := tt.setup(t, dir, cfg)
 
 			ctx := context.Background()
@@ -191,7 +191,7 @@ func TestFS_From(t *testing.T) {
 				ctx = tt.ctx()
 			}
 
-			gotPath, gotData, err := New(cfg, streams).From(ctx)
+			gotPath, gotData, err := New(cfg, logger).From(ctx)
 			if gotPath != want.path {
 				t.Fatalf("path = %q, want %q", gotPath, want.path)
 			}
@@ -200,14 +200,22 @@ func TestFS_From(t *testing.T) {
 			}
 			assertError(t, err, want.errIs, want.errContains)
 
-			out, errOut := streams.Strings()
+			out := logger.out
 			if out != want.out {
 				t.Fatalf("stdout = %q, want %q", out, want.out)
 			}
-			if errOut != "" {
-				t.Fatalf("stderr = %q, want empty", errOut)
-			}
 		})
+	}
+}
+
+type testLogger struct {
+	out string
+}
+
+func (l *testLogger) Log(_ log.Level, message string, fields ...log.Field) {
+	l.out += message + ","
+	for _, f := range fields {
+		l.out += fmt.Sprintf(" %s=%v", f.Key, f.Value)
 	}
 }
 
@@ -215,7 +223,7 @@ func TestFS_FromCachesAndCopiesBytes(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	writeTestFile(t, path, "name: original\n")
 
-	fs := New(&Config{Path: path}, kitstreams.NewBuffers())
+	fs := New(&Config{Path: path}, &testLogger{})
 	_, first, err := fs.From(context.Background())
 	if err != nil {
 		t.Fatalf("first From() error: %v", err)
@@ -455,7 +463,7 @@ func TestFS_To(t *testing.T) {
 				ctx = tt.ctx()
 			}
 
-			err := New(&Config{}, kitstreams.NewBuffers()).To(
+			err := New(&Config{}, &testLogger{}).To(
 				ctx,
 				path,
 				[]byte(tt.payload),

@@ -1,9 +1,9 @@
 package tests
 
 import (
-	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -13,6 +13,7 @@ import (
 
 	"github.com/ygrebnov/config"
 	configerrors "github.com/ygrebnov/config/pkg/errors"
+	"github.com/ygrebnov/config/pkg/log"
 	pathPkg "github.com/ygrebnov/config/pkg/path"
 	"github.com/ygrebnov/config/pkg/types"
 )
@@ -55,6 +56,17 @@ func TestLoad(t *testing.T) {
 	}
 }
 
+type testLogger struct {
+	out string
+}
+
+func (l *testLogger) Log(_ log.Level, message string, fields ...log.Field) {
+	l.out += message + ","
+	for _, f := range fields {
+		l.out += fmt.Sprintf(" %s=%v", f.Key, f.Value)
+	}
+}
+
 func TestLoad_ExplicitPath_CurrentStateFileEnvValidation(t *testing.T) {
 	td := t.TempDir()
 	path := filepath.Join(td, "config.yaml")
@@ -64,12 +76,12 @@ func TestLoad_ExplicitPath_CurrentStateFileEnvValidation(t *testing.T) {
 	t.Setenv("APP_COUNT", "9")
 	t.Setenv("APP_DUR", "3s")
 
-	var outBuf bytes.Buffer
 	cfg := smallCfg{Name: "default", Count: 1}
+	logger := &testLogger{}
 	err := config.Load(context.Background(), &cfg,
 		config.WithPath(path),
 		config.WithEnvPrefix("APP"),
-		config.WithStreams(&fakeStreams{out: &outBuf}),
+		config.WithLogger(logger),
 	)
 	if err != nil {
 		t.Fatalf("Load() error: %v", err)
@@ -86,9 +98,9 @@ func TestLoad_ExplicitPath_CurrentStateFileEnvValidation(t *testing.T) {
 		t.Errorf("unexpected cfg.Dur value, got: %v want: %v", cfg.Dur, expected.Dur)
 	}
 
-	expectedOut := "Loaded configuration from " + path
-	if !strings.Contains(outBuf.String(), expectedOut) {
-		t.Fatalf("unexpected out message, got %q, want: %s", outBuf.String(), expectedOut)
+	expectedOut := "loaded configuration, path=" + path
+	if !strings.Contains(logger.out, expectedOut) {
+		t.Fatalf("unexpected out message, got %q, want: %s", logger.out, expectedOut)
 	}
 }
 
