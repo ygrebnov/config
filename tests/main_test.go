@@ -1,7 +1,6 @@
 package tests
 
 import (
-	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -131,13 +130,3 @@ type tinyCfg struct {
 	Name string `yaml:"name" env:"NAME" default:"svc" validate:"min(1)"`
 	Port int    `yaml:"port" env:"PORT" default:"8080" validate:"min(1),nonzero"`
 }
-
-type fakeStreams struct {
-	in  io.Reader
-	out io.Writer
-	Err io.Writer
-}
-
-func (s fakeStreams) In() io.Reader     { return s.in }
-func (s fakeStreams) Out() io.Writer    { return s.out }
-func (s fakeStreams) ErrOut() io.Writer { return s.Err }

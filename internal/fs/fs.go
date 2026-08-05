@@ -3,32 +3,31 @@ package fs
 import (
 	"context"
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
 
-	kitstreams "github.com/pumpingbytes/go-kit/streams"
 	"github.com/ygrebnov/errorc"
 
 	configerrors "github.com/ygrebnov/config/pkg/errors"
 	configkeys "github.com/ygrebnov/config/pkg/keys"
+	"github.com/ygrebnov/config/pkg/log"
 	configpath "github.com/ygrebnov/config/pkg/path"
 )
 
 // FS performs filesystem operations.
 type FS struct {
-	once    sync.Once
-	cfg     *Config
-	streams kitstreams.IOStreams
+	once   sync.Once
+	cfg    *Config
+	logger log.Logger
 
 	path string
 	data []byte
 	err  error
 }
 
-func New(cfg *Config, streams kitstreams.IOStreams) *FS {
-	return &FS{cfg: cfg, streams: streams}
+func New(cfg *Config, logger log.Logger) *FS {
+	return &FS{cfg: cfg, logger: logger}
 }
 
 type Config struct {
@@ -95,7 +94,11 @@ func (fs *FS) From(ctx context.Context) (p string, b []byte, e error) {
 			return
 		}
 
-		_, _ = fmt.Fprintf(fs.streams.Out(), "Loaded configuration from %s\n", path)
+		fs.logger.Log(
+			log.LevelDebug,
+			"loaded configuration",
+			log.String(configkeys.Path, path),
+		)
 	})
 
 	return fs.path, cloneBytes(fs.data), fs.err

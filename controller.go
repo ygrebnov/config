@@ -8,7 +8,6 @@ import (
 	"strings"
 	"sync"
 
-	kitstreams "github.com/pumpingbytes/go-kit/streams"
 	"github.com/ygrebnov/errorc"
 	"github.com/ygrebnov/model"
 	"github.com/ygrebnov/model/field"
@@ -18,6 +17,7 @@ import (
 	storePkg "github.com/ygrebnov/config/internal/store"
 	configerrors "github.com/ygrebnov/config/pkg/errors"
 	configkeys "github.com/ygrebnov/config/pkg/keys"
+	"github.com/ygrebnov/config/pkg/log"
 )
 
 // Controller provides load/get/set/save operations for a single config object
@@ -43,7 +43,7 @@ type Controller[T any] struct {
 	store storeService
 	fs    fsService
 
-	streams kitstreams.IOStreams
+	logger log.Logger
 }
 
 type storeService interface {
@@ -185,7 +185,10 @@ func newControllerCtx[T any](
 		return nil, err
 	}
 
-	cfg := applyOptions(opts...)
+	cfg, err := applyOptions(opts...)
+	if err != nil {
+		return nil, err
+	}
 
 	bindingOptions := make([]model.Option, 0, 2)
 	if cfg.envPrefix != "" {
@@ -212,7 +215,7 @@ func newControllerCtx[T any](
 		AppName:   cfg.appName,
 	}
 
-	loader := fsPkg.New(fsCfg, cfg.streams)
+	loader := fsPkg.New(fsCfg, cfg.logger)
 	path, data, err := loader.From(ctx)
 	if err != nil {
 		return nil, err
@@ -237,7 +240,7 @@ func newControllerCtx[T any](
 		return nil, initializationError(err)
 	}
 
-	fs := fsPkg.New(fsCfg, cfg.streams)
+	fs := fsPkg.New(fsCfg, cfg.logger)
 
 	return &Controller[T]{
 		envPrefix: cfg.envPrefix,
@@ -245,7 +248,7 @@ func newControllerCtx[T any](
 		binding:   binding,
 		store:     store,
 		fs:        fs,
-		streams:   cfg.streams,
+		logger:    cfg.logger,
 	}, nil
 }
 

@@ -3,8 +3,9 @@ package config
 import (
 	"strings"
 
-	kitstreams "github.com/pumpingbytes/go-kit/streams"
 	"github.com/ygrebnov/model"
+
+	"github.com/ygrebnov/config/pkg/log"
 )
 
 // Option configures the config loading process.
@@ -14,18 +15,23 @@ type settings struct {
 	path      string
 	appName   string
 	envPrefix string
-	streams   kitstreams.IOStreams
+	logger    log.Logger
 	rules     []model.Rule
 }
 
-func applyOptions(opts ...Option) settings {
-	cfg := settings{streams: kitstreams.NewSilent()}
+func applyOptions(opts ...Option) (settings, error) {
+	logger, err := log.NewSilentLogger()
+	if err != nil {
+		return settings{}, err
+	}
+
+	cfg := settings{logger: logger}
 	for _, opt := range opts {
 		if opt != nil {
 			opt(&cfg)
 		}
 	}
-	return cfg
+	return cfg, nil
 }
 
 // WithPath sets an explicit config file path. It takes precedence over env and app-name resolution.
@@ -70,12 +76,11 @@ func WithValidationRules(rules ...model.Rule) Option {
 	}
 }
 
-// WithStreams wires user-facing message streams.
-// nil streams are ignored.
-func WithStreams(streams kitstreams.IOStreams) Option {
+// WithLogger wires a custom logger to the config loader. If nil, a silent logger is used.
+func WithLogger(logger log.Logger) Option {
 	return func(cfg *settings) {
-		if streams != nil {
-			cfg.streams = streams
+		if logger != nil {
+			cfg.logger = logger
 		}
 	}
 }
