@@ -117,10 +117,12 @@ func (fs *FS) fromFile(path string) ([]byte, error) {
 		return nil, err
 	}
 
+	// #nosec G703 -- path is an explicit configuration source validated above.
 	return os.ReadFile(path)
 }
 
 func validatePath(path string) error {
+	// #nosec G703 -- path is an explicit configuration source validated below.
 	info, err := os.Stat(path)
 	switch {
 	case err != nil && os.IsNotExist(err):

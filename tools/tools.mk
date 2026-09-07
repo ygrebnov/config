@@ -67,7 +67,7 @@ define install-golangci-lint
 	TMP_DIR=$$(mktemp -d) ;\
 	cd $$TMP_DIR ;\
 	echo "Installing golangci-lint $(2) to $(1)" ;\
-	curl -fsSL -o install.sh https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh ;\
+	curl -fsSL -o install.sh https://raw.githubusercontent.com/golangci/golangci-lint/$(2)/install.sh ;\
 	chmod 0700 install.sh ;\
 	./install.sh -b $$TMP_DIR $(2) ;\
 	mkdir -p $(dir $(1)) ;\
