@@ -30,7 +30,7 @@ jobs:
         run: make test
       - name: Upload artifacts
         if: matrix.go-version == 'stable'
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: coverage
           path: .tests/coverage.html
