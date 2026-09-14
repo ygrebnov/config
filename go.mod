@@ -7,7 +7,7 @@ require gopkg.in/yaml.v3 v3.0.1
 require (
 	github.com/ygrebnov/errorc v0.6.1
 	github.com/ygrebnov/keys v0.2.0
-	github.com/ygrebnov/log v0.4.3
+	github.com/ygrebnov/log v0.4.4
 	github.com/ygrebnov/model v0.7.3
 )
 
