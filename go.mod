@@ -8,7 +8,7 @@ require (
 	github.com/ygrebnov/errorc v0.6.1
 	github.com/ygrebnov/keys v0.2.0
 	github.com/ygrebnov/log v0.4.3
-	github.com/ygrebnov/model v0.7.3
+	github.com/ygrebnov/model v0.7.5
 )
 
 require (
