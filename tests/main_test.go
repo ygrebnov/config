@@ -102,7 +102,7 @@ func checkCfg(t *testing.T, actual, expected cfg) {
 
 func writeFile(t *testing.T, path, data string) {
 	t.Helper()
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
 	if err := os.WriteFile(path, []byte(data), 0o600); err != nil {

@@ -107,8 +107,8 @@ func TestLoad_ExplicitPath_CurrentStateFileEnvValidation(t *testing.T) {
 func TestLoad_WellKnownPath(t *testing.T) {
 	td := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", td)
-	t.Setenv("HOME", "")
-	t.Setenv("USERPROFILE", "")
+	t.Setenv("HOME", td)
+	t.Setenv("USERPROFILE", td)
 
 	path := filepath.Join(td, "myapp", pathPkg.DefaultConfigFilename)
 	writeFile(t, path, "name: usercfg\ncount: 5\n")
@@ -125,26 +125,27 @@ func TestLoad_WellKnownPath(t *testing.T) {
 
 func TestLoad_MissingFile(t *testing.T) {
 	td := t.TempDir()
-
-	cfg := smallCfg{Name: "default", Count: 1}
-
-	err := config.Load(context.Background(), &cfg, config.WithPath(filepath.Join(td, "missing.yaml")))
-	if err == nil {
-		t.Fatalf("expected Load() to return an error, but got none")
+	type defaultsConfig struct {
+		Name  string `default:"default"`
+		Count int    `default:"1"`
 	}
 
-	if !errors.Is(err, configerrors.ErrConfigurationFileNotFound) {
-		t.Fatalf("expected error to be ErrConfigurationFileNotFound, got %v", err)
+	cfg := defaultsConfig{Name: "old", Count: 9}
+	if err := config.Load(context.Background(), &cfg, config.WithPath(filepath.Join(td, "missing.yaml"))); err != nil {
+		t.Fatalf("Load() missing file error: %v", err)
 	}
 
-	expectedName := "default"
-	if cfg.Name != expectedName {
-		t.Fatalf("expected name to be: %s, got %s", expectedName, cfg.Name)
+	if cfg.Name != "default" || cfg.Count != 1 {
+		t.Fatalf("Load() missing file = %+v, want defaults", cfg)
 	}
+}
 
-	expectedCount := 1
-	if cfg.Count != expectedCount {
-		t.Fatalf("expected count to be: %d, got %d", expectedCount, cfg.Count)
+func TestLoad_MissingCustomDirectory(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "missing", "config.yaml")
+	var cfg smallCfg
+	err := config.Load(context.Background(), &cfg, config.WithPath(path))
+	if !errors.Is(err, configerrors.ErrConfigurationDirectoryNotFound) {
+		t.Fatalf("Load() error = %v, want ErrConfigurationDirectoryNotFound", err)
 	}
 }
 

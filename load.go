@@ -7,7 +7,7 @@ import (
 // Load is a convenience wrapper over a Controller construction and calling its Load method.
 //
 // WithPath sets an explicit config file path. It takes precedence over env and
-// app-name resolution.
+// app-name resolution. The parent directory must exist; the file may be absent.
 //
 // WithEnvPrefix sets the configuration file path to ${PREFIX}_CONFIG_PATH when
 // non-empty. It also enables ${PREFIX}_{FULL_NAME} configuration values. Model
