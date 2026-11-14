@@ -221,7 +221,7 @@ func TestController_CustomValidationRuleRejectsInvalidState(t *testing.T) {
 		Name string `yaml:"name" default:"allowed" validate:"allowed_name"`
 	}
 
-	rule, err := model.NewRule[string](
+	rule := model.NewRule[string](
 		"allowed_name",
 		func(value string, _ ...string) error {
 			if value != "allowed" {
@@ -231,9 +231,6 @@ func TestController_CustomValidationRuleRejectsInvalidState(t *testing.T) {
 			return nil
 		},
 	)
-	if err != nil {
-		t.Fatalf("NewRule() error: %v", err)
-	}
 
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	writeFile(t, path, "name: allowed\n")

@@ -6,8 +6,9 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/ygrebnov/config"
 	"github.com/ygrebnov/model"
+
+	"github.com/ygrebnov/config"
 )
 
 func ExampleLoad() {
@@ -101,7 +102,7 @@ func ExampleWithValidationRules() {
 		Environment string `default:"production" validate:"environment"`
 	}
 
-	rule, err := model.NewRule[string](
+	rule := model.NewRule[string](
 		"environment",
 		func(value string, _ ...string) error {
 			if value != "production" && value != "development" {
@@ -111,9 +112,6 @@ func ExampleWithValidationRules() {
 			return nil
 		},
 	)
-	if err != nil {
-		panic(err)
-	}
 
 	controller, err := config.NewController[Config](
 		config.WithValidationRules(rule),

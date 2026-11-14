@@ -17,7 +17,6 @@ import (
 	storePkg "github.com/ygrebnov/config/internal/store"
 	configerrors "github.com/ygrebnov/config/pkg/errors"
 	configkeys "github.com/ygrebnov/config/pkg/keys"
-	"github.com/ygrebnov/config/pkg/log"
 )
 
 // Controller provides load/get/set/save operations for a single config object
@@ -42,8 +41,6 @@ type Controller[T any] struct {
 
 	store storeService
 	fs    fsService
-
-	logger log.Logger
 }
 
 type storeService interface {
@@ -248,7 +245,6 @@ func newControllerCtx[T any](
 		binding:   binding,
 		store:     store,
 		fs:        fs,
-		logger:    cfg.logger,
 	}, nil
 }
 
