@@ -79,10 +79,21 @@ Configuration file resolution uses this precedence:
 3. `WithAppName("myapp")`, which resolves to
    `$(XDG_CONFIG_HOME | os.UserConfigDir())/myapp/config.yml`
 
-`WithPath` reports `ErrConfigurationFileNotFound` when its file is absent.
-Missing files from environment- and app-name-based discovery are allowed, so an
-application can start from defaults and environment values. `Save` creates the
-parent directories when needed.
+`WithAppName` accepts one application name, without path separators, reserved
+device names, or `..`. Its config directory must be inside the user's home;
+`XDG_CONFIG_HOME` must be absolute and inside that home. Use `WithPath` or
+`WithSavePath` for an intentional location elsewhere. Explicit and
+`${PREFIX}_CONFIG_PATH` paths use their parent directory as the filesystem
+boundary.
+
+Missing files are allowed, so an application can start from defaults and
+environment values and `Save` can create the file. Custom paths supplied through
+`WithPath`, `${PREFIX}_CONFIG_PATH`, or `WithSavePath` must have an existing
+parent directory; otherwise they return `ErrConfigurationDirectoryNotFound`.
+`WithAppName` may create its private app directory during `Save`. Existing
+config files must be regular and have private permissions. Saved files are
+created with private permissions; `Save` rejects a symlink in place of an
+existing destination file.
 
 YAML (`.yaml`, `.yml`) and JSON (`.json`) files are supported.
 

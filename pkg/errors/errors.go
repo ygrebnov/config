@@ -9,9 +9,14 @@ import (
 var namespace = errorc.Namespace("config")
 
 var (
-	ErrConfigurationFileNotFound                 = errorc.New("configuration file not found")
+	// Deprecated: missing configuration files are allowed when their parent exists.
+	ErrConfigurationFileNotFound = errorc.New("configuration file not found")
+	// ErrConfigurationDirectoryNotFound is returned for a custom path whose parent directory is absent.
+	ErrConfigurationDirectoryNotFound            = namespace.NewError("configuration directory not found")
 	ErrCannotResolveUserConfigDir                = namespace.NewError("cannot resolve user config dir")
+	ErrInvalidAppName                            = namespace.NewError("invalid application name")
 	ErrInvalidConfigFilePath                     = namespace.NewError("invalid path")
+	ErrInsecurePermissions                       = namespace.NewError("insecure permissions")
 	ErrCannotLoadConfigurationIntoProvidedObject = errorc.New("cannot load configuration into provided object")
 	ErrCannotInitializeConfigurationObject       = errorc.New("cannot initialize configuration object")
 
@@ -23,7 +28,7 @@ var (
 	ErrConfigurationOptionNotFound = namespace.NewError("config option not found")
 	// ErrInaccessiblePath is returned when a filesystem path cannot be accessed.
 	ErrInaccessiblePath = namespace.NewError("inaccessible path")
-	// ErrCannotCreateDirectories is returned when parent directories for a config file cannot be created.
+	// ErrCannotCreateDirectories is returned when an app-discovered config directory cannot be created.
 	ErrCannotCreateDirectories = namespace.NewError("cannot create directories")
 	// ErrUnsupportedConfigFileType is returned when the config file extension is not YAML or JSON.
 	ErrUnsupportedConfigFileType = namespace.NewError("unsupported config file type")

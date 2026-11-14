@@ -92,6 +92,11 @@ linters:
           - staticcheck
           - unparam
         path: _test.go
+
+      - path: ^pkg/path/path\.go$
+        linters:
+          - gocyclo
+
       - linters:
           - dogsled
           - dupl

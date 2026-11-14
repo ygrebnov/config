@@ -152,8 +152,8 @@ func marshalConfigurationFile(path string, obj any) ([]byte, error) {
 // WithAppName sets the configuration file path to a well-known OS-specific user
 // config location: <user-config-dir>/<app>/config.yml.
 //
-// WithStreams allows configuration operation messages to be written to the
-// provided streams.
+// WithLogger allows configuration operation messages to be logged
+// through the provided logger.
 //
 // NewControllerCtx is the context-aware alternative constructor.
 func NewController[T any](opts ...Option) (*Controller[T], error) {
@@ -237,14 +237,12 @@ func newControllerCtx[T any](
 		return nil, initializationError(err)
 	}
 
-	fs := fsPkg.New(fsCfg, cfg.logger)
-
 	return &Controller[T]{
 		envPrefix: cfg.envPrefix,
 		path:      path,
 		binding:   binding,
 		store:     store,
-		fs:        fs,
+		fs:        loader,
 	}, nil
 }
 

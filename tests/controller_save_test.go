@@ -33,6 +33,9 @@ func TestController_SaveWithCustomPath(t *testing.T) {
 
 	controller.Set("Name", "saved")
 	path := filepath.Join(t.TempDir(), "nested", "config.yaml")
+	if err := os.Mkdir(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
 	if err := controller.Save(
 		context.Background(),
 		config.WithSavePath(path),
@@ -42,6 +45,36 @@ func TestController_SaveWithCustomPath(t *testing.T) {
 
 	if saved := readFile(t, path); !strings.Contains(saved, "name: saved\n") {
 		t.Fatalf("custom-path configuration = %q", saved)
+	}
+}
+
+func TestController_SaveCreatesMissingExplicitFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	controller, err := config.NewController[smallCfg](config.WithPath(path))
+	if err != nil {
+		t.Fatalf("NewController() missing file error: %v", err)
+	}
+	controller.Set("Name", "created")
+	if err := controller.Save(context.Background()); err != nil {
+		t.Fatalf("Save() error: %v", err)
+	}
+	if saved := readFile(t, path); !strings.Contains(saved, "name: created\n") {
+		t.Fatalf("saved configuration = %q", saved)
+	}
+}
+
+func TestController_SaveRejectsMissingCustomDirectory(t *testing.T) {
+	controller, err := config.NewController[smallCfg]()
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "missing", "config.yaml")
+	err = controller.Save(context.Background(), config.WithSavePath(path))
+	if !errors.Is(err, errors.ErrConfigurationDirectoryNotFound) {
+		t.Fatalf("Save() error = %v, want ErrConfigurationDirectoryNotFound", err)
+	}
+	if _, err := os.Stat(filepath.Dir(path)); !os.IsNotExist(err) {
+		t.Fatalf("Save() created custom directory: %v", err)
 	}
 }
 

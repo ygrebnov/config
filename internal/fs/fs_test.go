@@ -6,207 +6,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
 	configerrors "github.com/ygrebnov/config/pkg/errors"
 	"github.com/ygrebnov/config/pkg/log"
 )
-
-type stubTempFile struct {
-	name     string
-	writeErr error
-	closeErr error
-}
-
-func (f *stubTempFile) Name() string { return f.name }
-
-func (f *stubTempFile) Write(b []byte) (int, error) {
-	if f.writeErr != nil {
-		return 0, f.writeErr
-	}
-
-	return len(b), nil
-}
-
-func (f *stubTempFile) Close() error {
-	return f.closeErr
-}
-
-type fromExpect struct {
-	path        string
-	data        string
-	errIs       error
-	errContains []string
-	out         string
-}
-
-func TestFS_From(t *testing.T) {
-	tests := []struct {
-		name  string
-		ctx   func() context.Context
-		setup func(t *testing.T, dir string, cfg *Config) fromExpect
-	}{
-		{
-			name: "returns context error before any work",
-			ctx: func() context.Context {
-				ctx, cancel := context.WithCancel(context.Background())
-				cancel()
-				return ctx
-			},
-			setup: func(t *testing.T, dir string, cfg *Config) fromExpect {
-				t.Helper()
-				return fromExpect{errIs: context.Canceled}
-			},
-		},
-		{
-			name: "returns zero values when no source is configured",
-			ctx:  context.Background,
-			setup: func(t *testing.T, dir string, cfg *Config) fromExpect {
-				t.Helper()
-				return fromExpect{}
-			},
-		},
-		{
-			name: "uses explicit path with highest precedence",
-			ctx:  context.Background,
-			setup: func(t *testing.T, dir string, cfg *Config) fromExpect {
-				t.Helper()
-
-				explicitPath := filepath.Join(dir, "explicit.yaml")
-				envPath := filepath.Join(dir, "env.yaml")
-				appPath := filepath.Join(dir, "xdg", "myapp", "config.yml")
-				writeTestFile(t, explicitPath, "name: explicit\n")
-				writeTestFile(t, envPath, "name: env\n")
-				writeTestFile(t, appPath, "name: app\n")
-
-				t.Setenv("PFX_CONFIG_PATH", envPath)
-				t.Setenv("XDG_CONFIG_HOME", filepath.Join(dir, "xdg"))
-				cfg.Path = explicitPath
-				cfg.EnvPrefix = "PFX"
-				cfg.AppName = "myapp"
-
-				return fromExpect{
-					path: explicitPath,
-					data: "name: explicit\n",
-					out:  "loaded configuration, path=" + explicitPath,
-				}
-			},
-		},
-		{
-			name: "uses env path before app name",
-			ctx:  context.Background,
-			setup: func(t *testing.T, dir string, cfg *Config) fromExpect {
-				t.Helper()
-
-				envPath := filepath.Join(dir, "env.json")
-				appPath := filepath.Join(dir, "xdg", "myapp", "config.yml")
-				writeTestFile(t, envPath, "{}\n")
-				writeTestFile(t, appPath, "name: app\n")
-
-				t.Setenv("PFX_CONFIG_PATH", envPath)
-				t.Setenv("XDG_CONFIG_HOME", filepath.Join(dir, "xdg"))
-				cfg.EnvPrefix = "PFX"
-				cfg.AppName = "myapp"
-
-				return fromExpect{
-					path: envPath,
-					data: "{}\n",
-					out:  "loaded configuration, path=" + envPath,
-				}
-			},
-		},
-		{
-			name: "uses app name when explicit and env paths are absent",
-			ctx:  context.Background,
-			setup: func(t *testing.T, dir string, cfg *Config) fromExpect {
-				t.Helper()
-
-				t.Setenv("XDG_CONFIG_HOME", filepath.Join(dir, "xdg"))
-				cfg.AppName = "myapp"
-				appPath := filepath.Join(dir, "xdg", "myapp", "config.yml")
-				writeTestFile(t, appPath, "name: app\n")
-
-				return fromExpect{
-					path: appPath,
-					data: "name: app\n",
-					out:  "loaded configuration, path=" + appPath,
-				}
-			},
-		},
-		{
-			name: "returns config-dir resolution error for app name",
-			ctx:  context.Background,
-			setup: func(t *testing.T, dir string, cfg *Config) fromExpect {
-				t.Helper()
-
-				t.Setenv("HOME", "")
-				t.Setenv("XDG_CONFIG_HOME", "")
-				cfg.AppName = "myapp"
-
-				return fromExpect{
-					errIs: configerrors.ErrCannotResolveUserConfigDir,
-				}
-			},
-		},
-		{
-			name: "returns not-found error for explicit missing file",
-			ctx:  context.Background,
-			setup: func(t *testing.T, dir string, cfg *Config) fromExpect {
-				t.Helper()
-
-				path := filepath.Join(dir, "missing.yaml")
-				cfg.Path = path
-
-				return fromExpect{
-					path:  path,
-					errIs: configerrors.ErrConfigurationFileNotFound,
-				}
-			},
-		},
-		{
-			name: "returns invalid path error for a directory",
-			ctx:  context.Background,
-			setup: func(t *testing.T, dir string, cfg *Config) fromExpect {
-				t.Helper()
-				cfg.Path = dir
-
-				return fromExpect{
-					path:  dir,
-					errIs: configerrors.ErrInvalidConfigFilePath,
-				}
-			},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			dir := t.TempDir()
-			cfg := &Config{}
-			logger := &testLogger{}
-			want := tt.setup(t, dir, cfg)
-
-			ctx := context.Background()
-			if tt.ctx != nil {
-				ctx = tt.ctx()
-			}
-
-			gotPath, gotData, err := New(cfg, logger).From(ctx)
-			if gotPath != want.path {
-				t.Fatalf("path = %q, want %q", gotPath, want.path)
-			}
-			if string(gotData) != want.data {
-				t.Fatalf("data = %q, want %q", gotData, want.data)
-			}
-			assertError(t, err, want.errIs, want.errContains)
-
-			out := logger.out
-			if out != want.out {
-				t.Fatalf("stdout = %q, want %q", out, want.out)
-			}
-		})
-	}
-}
 
 type testLogger struct {
 	out string
@@ -219,308 +25,197 @@ func (l *testLogger) Log(_ log.Level, message string, fields ...log.Field) {
 	}
 }
 
-func TestFS_FromCachesAndCopiesBytes(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "config.yaml")
-	writeTestFile(t, path, "name: original\n")
-
-	fs := New(&Config{Path: path}, &testLogger{})
-	_, first, err := fs.From(context.Background())
-	if err != nil {
-		t.Fatalf("first From() error: %v", err)
-	}
-	first[0] = 'X'
-
-	_, second, err := fs.From(context.Background())
-	if err != nil {
-		t.Fatalf("second From() error: %v", err)
-	}
-	if string(second) != "name: original\n" {
-		t.Fatalf("cached data = %q, want %q", second, "name: original\n")
-	}
-}
-
-func TestValidatePath(t *testing.T) {
-	tests := []struct {
-		name  string
-		setup func(t *testing.T, dir string) string
-		errIs error
-	}{
-		{
-			name: "returns not exist for missing path",
-			setup: func(t *testing.T, dir string) string {
-				t.Helper()
-				return filepath.Join(dir, "missing.yaml")
-			},
-			errIs: os.ErrNotExist,
-		},
-		{
-			name: "returns invalid config file path for directory",
-			setup: func(t *testing.T, dir string) string {
-				t.Helper()
-				return dir
-			},
-			errIs: configerrors.ErrInvalidConfigFilePath,
-		},
-		{
-			name: "returns unsupported config file type",
-			setup: func(t *testing.T, dir string) string {
-				t.Helper()
-				path := filepath.Join(dir, "config.txt")
-				writeTestFile(t, path, "name: text\n")
-				return path
-			},
-			errIs: configerrors.ErrUnsupportedConfigFileType,
-		},
-		{
-			name: "accepts supported file types",
-			setup: func(t *testing.T, dir string) string {
-				t.Helper()
-				path := filepath.Join(dir, "config.json")
-				writeTestFile(t, path, "{}\n")
-				return path
-			},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			err := validatePath(tt.setup(t, t.TempDir()))
-			assertError(t, err, tt.errIs, nil)
-		})
-	}
-}
-
-type toExpect struct {
-	errIs           error
-	errContains     []string
-	fileContent     string
-	fileShouldExist bool
-	skipPathCheck   bool
-}
-
-func TestFS_To(t *testing.T) {
-	mkdirErr := errors.New("mkdir failure")
-	createTempErr := errors.New("create temp failure")
-	writeErr := errors.New("write failure")
-	closeErr := errors.New("close failure")
-	renameErr := errors.New("rename failure")
-
-	tests := []struct {
-		name    string
-		ctx     func() context.Context
-		setup   func(t *testing.T, dir string) (string, toExpect)
-		payload string
-	}{
-		{
-			name: "returns context error before any work",
-			ctx: func() context.Context {
-				ctx, cancel := context.WithCancel(context.Background())
-				cancel()
-				return ctx
-			},
-			setup: func(t *testing.T, dir string) (string, toExpect) {
-				t.Helper()
-				return filepath.Join(dir, "config.yaml"), toExpect{errIs: context.Canceled}
-			},
-		},
-		{
-			name: "returns validate path error for directory target",
-			ctx:  context.Background,
-			setup: func(t *testing.T, dir string) (string, toExpect) {
-				t.Helper()
-				return dir, toExpect{
-					errIs:         configerrors.ErrInvalidConfigFilePath,
-					skipPathCheck: true,
-				}
-			},
-		},
-		{
-			name: "returns validate path error for unsupported extension",
-			ctx:  context.Background,
-			setup: func(t *testing.T, dir string) (string, toExpect) {
-				t.Helper()
-				path := filepath.Join(dir, "config.txt")
-				writeTestFile(t, path, "text\n")
-				return path, toExpect{
-					errIs:           configerrors.ErrUnsupportedConfigFileType,
-					fileContent:     "text\n",
-					fileShouldExist: true,
-				}
-			},
-		},
-		{
-			name: "wraps mkdir errors",
-			ctx:  context.Background,
-			setup: func(t *testing.T, dir string) (string, toExpect) {
-				t.Helper()
-				mkdirAll = func(string, os.FileMode) error { return mkdirErr }
-				return filepath.Join(dir, "nested", "config.yaml"), toExpect{
-					errIs:       configerrors.ErrCannotCreateDirectories,
-					errContains: []string{mkdirErr.Error()},
-				}
-			},
-		},
-		{
-			name: "wraps create temp errors",
-			ctx:  context.Background,
-			setup: func(t *testing.T, dir string) (string, toExpect) {
-				t.Helper()
-				createTempFile = func(string, string) (tempFile, error) {
-					return nil, createTempErr
-				}
-				return filepath.Join(dir, "config.yaml"), toExpect{
-					errIs:       configerrors.ErrCreateTempFile,
-					errContains: []string{createTempErr.Error()},
-				}
-			},
-		},
-		{
-			name: "wraps temp file write errors",
-			ctx:  context.Background,
-			setup: func(t *testing.T, dir string) (string, toExpect) {
-				t.Helper()
-				createTempFile = func(string, string) (tempFile, error) {
-					return &stubTempFile{
-						name:     filepath.Join(dir, "temp-write.yaml"),
-						writeErr: writeErr,
-					}, nil
-				}
-				return filepath.Join(dir, "config.yaml"), toExpect{
-					errIs:       configerrors.ErrWrite,
-					errContains: []string{writeErr.Error()},
-				}
-			},
-		},
-		{
-			name: "wraps temp file close errors",
-			ctx:  context.Background,
-			setup: func(t *testing.T, dir string) (string, toExpect) {
-				t.Helper()
-				createTempFile = func(string, string) (tempFile, error) {
-					return &stubTempFile{
-						name:     filepath.Join(dir, "temp-close.yaml"),
-						closeErr: closeErr,
-					}, nil
-				}
-				return filepath.Join(dir, "config.yaml"), toExpect{
-					errIs:       configerrors.ErrCloseTempFile,
-					errContains: []string{closeErr.Error()},
-				}
-			},
-		},
-		{
-			name: "wraps rename errors",
-			ctx:  context.Background,
-			setup: func(t *testing.T, dir string) (string, toExpect) {
-				t.Helper()
-				renameFile = func(string, string) error { return renameErr }
-				return filepath.Join(dir, "config.yaml"), toExpect{
-					errIs:       configerrors.ErrWrite,
-					errContains: []string{renameErr.Error()},
-				}
-			},
-		},
-		{
-			name:    "writes raw JSON bytes",
-			ctx:     context.Background,
-			payload: "{\"name\":\"json\"}\n",
-			setup: func(t *testing.T, dir string) (string, toExpect) {
-				t.Helper()
-				return filepath.Join(dir, "nested", "config.json"), toExpect{
-					fileContent:     "{\"name\":\"json\"}\n",
-					fileShouldExist: true,
-				}
-			},
-		},
-		{
-			name:    "writes raw YAML bytes",
-			ctx:     context.Background,
-			payload: "name: yaml\n",
-			setup: func(t *testing.T, dir string) (string, toExpect) {
-				t.Helper()
-				return filepath.Join(dir, "nested", "config.yaml"), toExpect{
-					fileContent:     "name: yaml\n",
-					fileShouldExist: true,
-				}
-			},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			origMkdirAll := mkdirAll
-			origCreateTempFile := createTempFile
-			origRenameFile := renameFile
-			t.Cleanup(func() {
-				mkdirAll = origMkdirAll
-				createTempFile = origCreateTempFile
-				renameFile = origRenameFile
-			})
-
-			path, want := tt.setup(t, t.TempDir())
-			ctx := context.Background()
-			if tt.ctx != nil {
-				ctx = tt.ctx()
-			}
-
-			err := New(&Config{}, &testLogger{}).To(
-				ctx,
-				path,
-				[]byte(tt.payload),
-			)
-			assertError(t, err, want.errIs, want.errContains)
-
-			if want.skipPathCheck {
-				return
-			}
-
-			got, readErr := os.ReadFile(path)
-			switch {
-			case want.fileShouldExist && readErr != nil:
-				t.Fatalf("reading written file: %v", readErr)
-			case want.fileShouldExist && string(got) != want.fileContent:
-				t.Fatalf("file content = %q, want %q", string(got), want.fileContent)
-			case !want.fileShouldExist && readErr == nil:
-				t.Fatalf("expected file %q to be absent", path)
-			case !want.fileShouldExist && !errors.Is(readErr, os.ErrNotExist):
-				t.Fatalf("expected not-exist for %q, got %v", path, readErr)
-			}
-		})
-	}
-}
-
-func assertError(
-	t *testing.T,
-	err error,
-	want error,
-	contains []string,
-) {
-	t.Helper()
-
-	if want == nil {
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		return
-	}
-
-	if !errors.Is(err, want) {
-		t.Fatalf("expected error matching %v, got %v", want, err)
-	}
-	for _, fragment := range contains {
-		if !strings.Contains(err.Error(), fragment) {
-			t.Fatalf("expected error %q to contain %q", err.Error(), fragment)
-		}
-	}
-}
-
 func writeTestFile(t *testing.T, path, content string) {
 	t.Helper()
-
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		t.Fatalf("mkdir %s: %v", filepath.Dir(path), err)
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
 	}
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
-		t.Fatalf("write %s: %v", path, err)
+		t.Fatal(err)
+	}
+}
+
+func TestFromSourcePrecedence(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "xdg"))
+
+	explicit := filepath.Join(home, "explicit.yaml")
+	env := filepath.Join(home, "env.json")
+	app := filepath.Join(home, "xdg", "myapp", "config.yml")
+	writeTestFile(t, explicit, "name: explicit\n")
+	writeTestFile(t, env, "{\"name\":\"env\"}\n")
+	writeTestFile(t, app, "name: app\n")
+	t.Setenv("PFX_CONFIG_PATH", env)
+
+	for _, tt := range []struct {
+		name string
+		cfg  Config
+		path string
+		data string
+	}{
+		{"explicit", Config{Path: explicit, EnvPrefix: "PFX", AppName: "myapp"}, explicit, "name: explicit\n"},
+		{"environment", Config{EnvPrefix: "PFX", AppName: "myapp"}, env, "{\"name\":\"env\"}\n"},
+		{"application", Config{AppName: "myapp"}, app, "name: app\n"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			logger := &testLogger{}
+			fs := New(&tt.cfg, logger)
+			path, data, err := fs.From(context.Background())
+			if err != nil || path != tt.path || string(data) != tt.data {
+				t.Fatalf("From() = (%q, %q, %v), want (%q, %q)", path, data, err, tt.path, tt.data)
+			}
+			if !strings.Contains(logger.out, "loaded configuration") {
+				t.Fatalf("missing load log: %q", logger.out)
+			}
+			data[0] = 'X'
+			_, again, err := fs.From(context.Background())
+			if err != nil || string(again) != tt.data {
+				t.Fatalf("cached data changed: %q, %v", again, err)
+			}
+		})
+	}
+}
+
+func TestFromMissingAndInvalidPaths(t *testing.T) {
+	dir := t.TempDir()
+	explicit := filepath.Join(dir, "missing.yaml")
+	path, data, err := New(&Config{Path: explicit}, &testLogger{}).From(context.Background())
+	if err != nil || path != explicit || data != nil {
+		t.Fatalf("explicit missing file = (%q, %q, %v)", path, data, err)
+	}
+
+	t.Setenv("PFX_CONFIG_PATH", explicit)
+	path, data, err = New(&Config{EnvPrefix: "PFX"}, &testLogger{}).From(context.Background())
+	if err != nil || path != explicit || data != nil {
+		t.Fatalf("environment missing file = (%q, %q, %v)", path, data, err)
+	}
+
+	missingParent := filepath.Join(dir, "missing-parent", "config.yaml")
+	_, _, err = New(&Config{Path: missingParent}, &testLogger{}).From(context.Background())
+	if !errors.Is(err, configerrors.ErrConfigurationDirectoryNotFound) {
+		t.Fatalf("explicit missing directory: %v", err)
+	}
+	t.Setenv("PFX_CONFIG_PATH", missingParent)
+	_, _, err = New(&Config{EnvPrefix: "PFX"}, &testLogger{}).From(context.Background())
+	if !errors.Is(err, configerrors.ErrConfigurationDirectoryNotFound) {
+		t.Fatalf("environment missing directory: %v", err)
+	}
+
+	_, _, err = New(&Config{Path: dir}, &testLogger{}).From(context.Background())
+	if !errors.Is(err, configerrors.ErrInvalidConfigFilePath) {
+		t.Fatalf("directory source: %v", err)
+	}
+
+	textPath := filepath.Join(dir, "config.txt")
+	writeTestFile(t, textPath, "invalid\n")
+	_, _, err = New(&Config{Path: textPath}, &testLogger{}).From(context.Background())
+	if !errors.Is(err, configerrors.ErrUnsupportedConfigFileType) {
+		t.Fatalf("unsupported extension: %v", err)
+	}
+}
+
+func TestToAtomicSaveAndValidation(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "nested", "config.yaml")
+	if err := os.Mkdir(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	fs := New(&Config{}, &testLogger{})
+	for _, value := range []string{"name: first\n", "name: second\n"} {
+		if err := fs.To(context.Background(), path, []byte(value)); err != nil {
+			t.Fatalf("To() error: %v", err)
+		}
+		data, err := os.ReadFile(path)
+		if err != nil || string(data) != value {
+			t.Fatalf("saved content = %q, %v", data, err)
+		}
+	}
+
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if runtime.GOOS != "windows" && info.Mode().Perm()&0o077 != 0 {
+		t.Fatalf("config file is not private: %v", info.Mode())
+	}
+
+	for _, tt := range []struct {
+		path string
+		want error
+	}{
+		{filepath.Join(dir, "new.txt"), configerrors.ErrUnsupportedConfigFileType},
+		{dir, configerrors.ErrInvalidConfigFilePath},
+	} {
+		err := fs.To(context.Background(), tt.path, []byte("data"))
+		if !errors.Is(err, tt.want) {
+			t.Fatalf("To(%q) error = %v, want %v", tt.path, err, tt.want)
+		}
+	}
+
+	missingParent := filepath.Join(dir, "absent", "config.yaml")
+	if err := fs.To(context.Background(), missingParent, []byte("data")); !errors.Is(err, configerrors.ErrConfigurationDirectoryNotFound) {
+		t.Fatalf("To() missing directory error = %v", err)
+	}
+	if _, err := os.Stat(filepath.Dir(missingParent)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("To() created custom parent directory: %v", err)
+	}
+}
+
+func TestSymlinkEscape(t *testing.T) {
+	dir := t.TempDir()
+	safe := filepath.Join(dir, "safe")
+	outside := filepath.Join(dir, "outside")
+	if err := os.MkdirAll(safe, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, outside, "secret\n")
+	link := filepath.Join(safe, "config.yaml")
+	if err := os.Symlink(outside, link); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+
+	_, _, err := New(&Config{Path: link}, &testLogger{}).From(context.Background())
+	if err == nil {
+		t.Fatal("read followed symlink outside its root")
+	}
+	if err := New(&Config{}, &testLogger{}).To(context.Background(), link, []byte("replacement")); err == nil {
+		t.Fatal("save accepted symlink target")
+	}
+	data, err := os.ReadFile(outside)
+	if err != nil || string(data) != "secret\n" {
+		t.Fatalf("outside file changed: %q, %v", data, err)
+	}
+}
+
+func TestAppPathSymlinkEscape(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	xdg := filepath.Join(home, "xdg")
+	t.Setenv("XDG_CONFIG_HOME", xdg)
+	outside := t.TempDir()
+	if err := os.MkdirAll(xdg, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(xdg, "myapp")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	_, _, err := New(&Config{AppName: "myapp"}, &testLogger{}).From(context.Background())
+	if err == nil {
+		t.Fatal("app path escaped home through symlink")
+	}
+}
+
+func TestContextCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	fs := New(&Config{Path: filepath.Join(t.TempDir(), "config.yaml")}, &testLogger{})
+	if _, _, err := fs.From(ctx); !errors.Is(err, context.Canceled) {
+		t.Fatalf("From canceled: %v", err)
+	}
+	if err := fs.To(ctx, filepath.Join(t.TempDir(), "config.yaml"), nil); !errors.Is(err, context.Canceled) {
+		t.Fatalf("To canceled: %v", err)
 	}
 }

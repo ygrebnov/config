@@ -186,6 +186,8 @@ func TestController_AppNameCreatesAndReloadsConfig(t *testing.T) {
 
 	configHome := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", configHome)
+	t.Setenv("HOME", configHome)
+	t.Setenv("USERPROFILE", configHome)
 
 	first, err := config.NewController[smallCfg](config.WithAppName(appName))
 	if err != nil {

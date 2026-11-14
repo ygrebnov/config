@@ -34,7 +34,8 @@ func applyOptions(opts ...Option) (settings, error) {
 	return cfg, nil
 }
 
-// WithPath sets an explicit config file path. It takes precedence over env and app-name resolution.
+// WithPath sets an explicit config file path. It takes precedence over env and
+// app-name resolution. The parent directory must exist; the file may be absent.
 // Empty path is ignored.
 func WithPath(path string) Option {
 	path = strings.TrimSpace(path)
@@ -45,7 +46,10 @@ func WithPath(path string) Option {
 	}
 }
 
-// WithAppName enables loading from a well-known user config location: <user-config-dir>/<app>/config.yml.
+// WithAppName enables loading from a well-known user config location:
+// <user-config-dir>/<app>/config.yml. The app name must be a single valid
+// directory name, and the resolved config directory must be inside the user's
+// home directory.
 // Empty appName is ignored.
 func WithAppName(appName string) Option {
 	appName = strings.TrimSpace(appName)
