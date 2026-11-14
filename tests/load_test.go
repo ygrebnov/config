@@ -63,7 +63,7 @@ type testLogger struct {
 func (l *testLogger) Log(_ log.Level, message string, fields ...log.Field) {
 	l.out += message + ","
 	for _, f := range fields {
-		l.out += fmt.Sprintf(" %s=%v", f.Key, f.Value)
+		l.out += fmt.Sprintf(" %s=%v", f.Key(), f.String())
 	}
 }
 

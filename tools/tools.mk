@@ -10,25 +10,39 @@ BIN_DIR			?= $(TOOLS_DIR)/bin
 OS		:= $(shell uname -s | tr A-Z a-z)
 ARCH	:= $(shell uname -m)
 
-GOLANGCI_LINT_VERSION	?= $(shell grep github.com/golangci/golangci-lint $(TOOLS_MOD_FILE) | awk '{print $$3}')
+GOLANGCI_LINT_VERSION ?= $(shell GOTOOLCHAIN=auto go -C $(TOOLS_DIR) list -m -f '{{.Version}}' github.com/golangci/golangci-lint/v2)
+GOVULNCHECK_VERSION   ?= $(shell GOTOOLCHAIN=auto go -C $(TOOLS_DIR) list -m -f '{{.Version}}' golang.org/x/vuln)
+
 GOLANGCI_LINT	:= $(BIN_DIR)/golangci-lint-$(OS)-$(ARCH)-$(GOLANGCI_LINT_VERSION)
+GOVULNCHECK   := $(BIN_DIR)/govulncheck-$(OS)-$(ARCH)-$(GOVULNCHECK_VERSION)
 
 $(GOLANGCI_LINT):
-	$(call install-golangci-lint,$@,$(GOLANGCI_LINT_VERSION))
+	$(call go-install-tool,$@,github.com/golangci/golangci-lint/v2/cmd/golangci-lint,$(GOLANGCI_LINT_VERSION))
+
+$(GOVULNCHECK):
+	$(call go-install-tool,$@,golang.org/x/vuln/cmd/govulncheck,$(GOVULNCHECK_VERSION))
 
 GOLANGCI_LINT_LINK 	:= $(BIN_DIR)/golangci-lint
+GOVULNCHECK_LINK   := $(BIN_DIR)/govulncheck
 
 .PHONY: $(GOLANGCI_LINT_LINK)
 $(GOLANGCI_LINT_LINK): $(GOLANGCI_LINT)
 	$(call create-symlink,$(GOLANGCI_LINT),$(GOLANGCI_LINT_LINK))
 
-TOOLS := install-golangci-lint
+.PHONY: $(GOVULNCHECK_LINK)
+$(GOVULNCHECK_LINK): $(GOVULNCHECK)
+	$(call create-symlink,$(GOVULNCHECK),$(GOVULNCHECK_LINK))
+
+TOOLS := install-golangci-lint install-govulncheck
 
 .PHONY: install-tools
 install-tools: $(TOOLS)
 
 .PHONY: install-golangci-lint
 install-golangci-lint: $(GOLANGCI_LINT) $(GOLANGCI_LINT_LINK)
+
+.PHONY: install-govulncheck
+install-govulncheck: $(GOVULNCHECK) $(GOVULNCHECK_LINK)
 
 .PHONY: clean-tools
 clean-tools:
@@ -46,33 +60,14 @@ update-tools: clean-tools install-tools
 define go-install-tool
 	@[ -f $(1) ] || { \
 	set -e ;\
-	TMP_DIR=$$(mktemp -d) ;\
+	TMP_DIR=$$(mktemp -d); \
+	trap 'rm -rf "$$TMP_DIR"' EXIT; \
 	cd $$TMP_DIR ;\
 	echo "Installing $(2)@$(3) to $(1)" ;\
-	go mod init tmp ;\
-	GOBIN=$$TMP_DIR go install $(2)@$(3) ;\
+	GOTOOLCHAIN=auto go mod init tmp ;\
+	GOBIN=$$TMP_DIR GOTOOLCHAIN=auto go install $(2)@$(3) ;\
 	mkdir -p $(dir $(1)) ;\
 	mv $$TMP_DIR/$$(basename $(2)) $(1) ;\
-	rm -rf $$TMP_DIR ;\
-	}
-endef
-
-# install-golangci-lint installs golangci-lint.
-#
-# $(1) binary path
-# $(2) version
-define install-golangci-lint
-	@[ -f $(1) ] || { \
-	set -e ;\
-	TMP_DIR=$$(mktemp -d) ;\
-	cd $$TMP_DIR ;\
-	echo "Installing golangci-lint $(2) to $(1)" ;\
-	curl -fsSL -o install.sh https://raw.githubusercontent.com/golangci/golangci-lint/$(2)/install.sh ;\
-	chmod 0700 install.sh ;\
-	./install.sh -b $$TMP_DIR $(2) ;\
-	mkdir -p $(dir $(1)) ;\
-	mv $$TMP_DIR/golangci-lint $(1) ;\
-	rm -rf $$TMP_DIR ;\
 	}
 endef
 
