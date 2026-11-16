@@ -59,6 +59,10 @@ fmt.Println(port)
 `Set` does not validate immediately, allowing a batch of related updates.
 Call `Validate` for immediate feedback. `Save` always validates before writing.
 `Get` returns `ErrConfigurationOptionNotFound` for a missing path.
+The controller copies maps, slices, pointers, and their exported nested fields
+when values enter or leave its store. Mutating a value after `Set`, `Get`, or
+`Load` does not change the controller's state. Channels, functions, and
+unexported reference fields retain Go's ordinary copy semantics.
 
 Common paths include:
 

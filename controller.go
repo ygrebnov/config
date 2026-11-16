@@ -23,8 +23,13 @@ import (
 // of type T. T must be a non-pointer struct type.
 //
 // Controller operates on its own representation of the configuration object.
-// It does not retain or mutate a user-provided object. Load copies the current
-// controller state into the provided object and validates it.
+// It does not retain or mutate a user-provided object. Values crossing the
+// controller's store boundary are copied: maps, slices, pointers, and exported
+// fields reachable through them are recursively independent. Opaque values
+// such as channels, functions, and unexported reference fields retain Go's
+// ordinary copy semantics. Do not mutate an input concurrently with Set.
+// Load copies the current controller state into the provided object and
+// validates it.
 //
 // Each Controller instance is independent and can manage a different
 // configuration object.
@@ -340,6 +345,7 @@ func (c *Controller[T]) configurationObject() (*T, error) {
 //
 // It returns ErrConfigurationOptionNotFound when name is not a known path.
 // A configuration option with a nil value is returned as nil with no error.
+// Mutable values are copied before being returned.
 func (c *Controller[T]) Get(name string) (any, error) {
 	value, found := c.store.Get(name)
 	if found {
@@ -356,6 +362,7 @@ func (c *Controller[T]) Get(name string) (any, error) {
 //
 // Set does not validate the value. Call Validate after one or more updates to
 // check the controller state. Save also validates before persisting.
+// Mutable values are copied before being stored.
 func (c *Controller[T]) Set(name string, value any) {
 	c.store.Set(name, value)
 }

@@ -97,6 +97,11 @@ linters:
         linters:
           - gocyclo
 
+      - path: ^internal/store/store\.go$
+        linters:
+          - funlen
+          - gocyclo
+
       - linters:
           - dogsled
           - dupl
