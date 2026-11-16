@@ -38,4 +38,4 @@ verify: lint vulncheck test-race
 
 .PHONY: bench
 bench:
-	@go test -bench=. -benchmem -run=^$
+	@go test -bench=. -benchmem -run='^$$' ./...
