@@ -8,7 +8,6 @@ import (
 	fspath "github.com/ygrebnov/fs/path"
 
 	"github.com/ygrebnov/config/pkg/errors"
-	"github.com/ygrebnov/config/pkg/keys"
 )
 
 const DefaultConfigFilename = "config.yml"
@@ -22,16 +21,16 @@ func GetConfigPath(appName string) (string, error) {
 		case nativeerrors.Is(err, fspath.ErrInvalidAppName):
 			return "", errors.ErrInvalidAppName
 		case nativeerrors.Is(err, fspath.ErrInvalidBasePath):
-			return "", errorc.With(errors.ErrInvalidConfigFilePath, errorc.Error(keys.Cause, err))
+			return "", errorc.WithCause(errors.ErrInvalidConfigFilePath, err)
 		default:
-			return "", errorc.With(errors.ErrCannotResolveUserConfigDir, errorc.Error(keys.Cause, err))
+			return "", errorc.WithCause(errors.ErrCannotResolveUserConfigDir, err)
 		}
 	}
 	if err := fspath.ValidateWithinHome(dir); err != nil {
 		if nativeerrors.Is(err, fspath.ErrCannotResolveHome) {
-			return "", errorc.With(errors.ErrCannotResolveUserConfigDir, errorc.Error(keys.Cause, err))
+			return "", errorc.WithCause(errors.ErrCannotResolveUserConfigDir, err)
 		}
-		return "", errorc.With(errors.ErrInvalidConfigFilePath, errorc.Error(keys.Cause, err))
+		return "", errorc.WithCause(errors.ErrInvalidConfigFilePath, err)
 	}
 	return filepath.Join(dir, DefaultConfigFilename), nil
 }

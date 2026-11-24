@@ -171,10 +171,7 @@ func openParent(path string, appPath, create bool) (*os.Root, string, error) {
 func openAppPathParent(dir, name string, create bool) (*os.Root, string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return nil, "", errorc.With(
-			configerrors.ErrCannotResolveUserConfigDir,
-			errorc.Error(configkeys.Cause, err),
-		)
+		return nil, "", errorc.WithCause(configerrors.ErrCannotResolveUserConfigDir, err)
 	}
 	rel, err := filepath.Rel(home, dir)
 	if err != nil ||
@@ -192,10 +189,7 @@ func openAppPathParent(dir, name string, create bool) (*os.Root, string, error) 
 
 	if create {
 		if errMkdirAll := homeRoot.MkdirAll(rel, 0o700); errMkdirAll != nil {
-			return nil, "", errorc.With(
-				configerrors.ErrCannotCreateDirectories,
-				errorc.Error(configkeys.Cause, errMkdirAll),
-			)
+			return nil, "", errorc.WithCause(configerrors.ErrCannotCreateDirectories, errMkdirAll)
 		}
 	}
 	appRoot, err := homeRoot.OpenRoot(rel)
@@ -220,7 +214,7 @@ func validateAppRootPermissions(root *os.Root) error {
 
 func configFSError(err error) error {
 	if errors.Is(err, sharedfs.ErrInsecurePermissions) {
-		return errorc.With(configerrors.ErrInsecurePermissions, errorc.Error(configkeys.Cause, err))
+		return errorc.WithCause(configerrors.ErrInsecurePermissions, err)
 	}
 	return err
 }

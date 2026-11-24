@@ -228,21 +228,22 @@ func newControllerCtx[T any](
 
 	obj := new(T)
 	if data != nil {
-		if err := unmarshalConfigurationFile(path, data, obj); err != nil {
-			return nil, configurationFileParseError(path, err)
+		if errUnmarshal := unmarshalConfigurationFile(path, data, obj); errUnmarshal != nil {
+			return nil, errorc.With(
+				configerrors.ErrParse,
+				errorc.String(configkeys.Path, path),
+				errorc.Error(configkeys.Cause, errUnmarshal),
+			)
 		}
 	}
 
-	if err := binding.ValidateWithDefaults(ctx, obj); err != nil {
-		return nil, initializationError(err)
+	if errValidate := binding.ValidateWithDefaults(ctx, obj); errValidate != nil {
+		return nil, errorc.WithCause(configerrors.ErrCannotInitializeConfigurationObject, errValidate)
 	}
 
 	store := storePkg.New()
-	if err := binding.WriteValues(
-		obj,
-		sinkFactory(store),
-	); err != nil {
-		return nil, initializationError(err)
+	if errWrite := binding.WriteValues(obj, sinkFactory(store)); errWrite != nil {
+		return nil, errorc.WithCause(configerrors.ErrCannotInitializeConfigurationObject, errWrite)
 	}
 
 	return &Controller[T]{
@@ -256,21 +257,6 @@ func newControllerCtx[T any](
 
 func newStoreValueSink(store storeService) field.ValueSink {
 	return storeValueSink{store: store}
-}
-
-func initializationError(err error) error {
-	return errorc.With(
-		configerrors.ErrCannotInitializeConfigurationObject,
-		errorc.Error(configkeys.Cause, err),
-	)
-}
-
-func configurationFileParseError(path string, err error) error {
-	return errorc.With(
-		configerrors.ErrParse,
-		errorc.String(configkeys.Path, path),
-		errorc.Error(configkeys.Cause, err),
-	)
 }
 
 // Load replaces obj with the current controller state and validates it.
@@ -297,21 +283,14 @@ func (c *Controller[T]) Load(ctx context.Context, obj *T) error {
 		obj,
 		storeValueSource{store: c.store},
 	); err != nil {
-		return loadError(err)
+		return errorc.WithCause(configerrors.ErrCannotLoadConfigurationIntoProvidedObject, err)
 	}
 
 	if err := c.binding.Validate(ctx, obj); err != nil {
-		return loadError(err)
+		return errorc.WithCause(configerrors.ErrCannotLoadConfigurationIntoProvidedObject, err)
 	}
 
 	return nil
-}
-
-func loadError(err error) error {
-	return errorc.With(
-		configerrors.ErrCannotLoadConfigurationIntoProvidedObject,
-		errorc.Error(configkeys.Cause, err),
-	)
 }
 
 // Validate checks the controller's current configuration state.

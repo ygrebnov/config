@@ -9,11 +9,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ygrebnov/errorc"
 	sharedfs "github.com/ygrebnov/fs"
 	modelerrors "github.com/ygrebnov/model/pkg/errors"
+	"github.com/ygrebnov/model/validation"
 
 	"github.com/ygrebnov/config"
 	configerrors "github.com/ygrebnov/config/pkg/errors"
+	"github.com/ygrebnov/config/pkg/keys"
 	"github.com/ygrebnov/config/pkg/log"
 	pathPkg "github.com/ygrebnov/config/pkg/path"
 	"github.com/ygrebnov/config/pkg/types"
@@ -198,7 +201,14 @@ func TestLoad_ValidationError(t *testing.T) {
 		t.Fatalf("expected configuration loading error")
 	}
 	if !errors.Is(err, configerrors.ErrCannotInitializeConfigurationObject) {
-		t.Fatalf("expected ErrCannotLoadConfigurationIntoProvidedObject, got %v", err)
+		t.Fatalf("expected ErrCannotInitializeConfigurationObject, got %v", err)
+	}
+	var validationErr *validation.Error
+	if !errors.As(err, &validationErr) {
+		t.Fatalf("Load() error = %v, want *validation.Error in chain", err)
+	}
+	if cause, ok := errorc.Lookup[error](err, keys.Cause); !ok || cause != validationErr {
+		t.Fatalf("cause field = %v, %v; want %v", cause, ok, validationErr)
 	}
 
 	expectedErrorMsg := `cannot initialize configuration object, cause: - Field "Name": rule "min": rule constraint violated (length=1)
