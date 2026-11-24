@@ -2,6 +2,8 @@ package tests
 
 import (
 	"context"
+	"encoding/json"
+	stderrors "errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -9,11 +11,13 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/ygrebnov/errorc"
 	sharedfs "github.com/ygrebnov/fs"
 	"github.com/ygrebnov/model"
 
 	"github.com/ygrebnov/config"
 	"github.com/ygrebnov/config/pkg/errors"
+	"github.com/ygrebnov/config/pkg/keys"
 	pathPkg "github.com/ygrebnov/config/pkg/path"
 )
 
@@ -104,6 +108,26 @@ func TestNewController_ReturnsParseError(t *testing.T) {
 
 	if _, err := config.NewController[smallCfg](config.WithPath(path)); !errors.Is(err, errors.ErrParse) {
 		t.Fatalf("NewController() error = %v, want ErrParse", err)
+	}
+}
+
+func TestNewController_ExposesJSONUnmarshalError(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	writeFile(t, path, `{"count":"invalid"}`)
+
+	_, err := config.NewController[smallCfg](config.WithPath(path))
+	if !stderrors.Is(err, errors.ErrParse) {
+		t.Fatalf("NewController() error = %v, want ErrParse", err)
+	}
+	var unmarshalErr *json.UnmarshalTypeError
+	if !stderrors.As(err, &unmarshalErr) {
+		t.Fatalf("NewController() error = %v, want *json.UnmarshalTypeError in chain", err)
+	}
+	if got, ok := errorc.Lookup[string](err, keys.Path); !ok || got != path {
+		t.Fatalf("path field = %q, %v; want %q", got, ok, path)
+	}
+	if got, ok := errorc.Lookup[error](err, keys.Cause); !ok || got != unmarshalErr {
+		t.Fatalf("cause field = %v, %v; want %v", got, ok, unmarshalErr)
 	}
 }
 
