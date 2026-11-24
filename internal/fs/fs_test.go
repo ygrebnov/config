@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 
+	sharedfs "github.com/ygrebnov/fs"
+
 	configerrors "github.com/ygrebnov/config/pkg/errors"
 	"github.com/ygrebnov/config/pkg/log"
 )
@@ -113,6 +115,33 @@ func TestFromMissingAndInvalidPaths(t *testing.T) {
 	_, _, err = New(&Config{Path: textPath}, &testLogger{}).From(context.Background())
 	if !errors.Is(err, configerrors.ErrUnsupportedConfigFileType) {
 		t.Fatalf("unsupported extension: %v", err)
+	}
+}
+
+func TestFromMaxFileSize(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	prefix := "name: test\n"
+	writeTestFile(t, path, prefix+strings.Repeat("#", int(defaultMaxFileSize)-len(prefix)))
+
+	_, data, err := New(&Config{Path: path}, &testLogger{}).From(context.Background())
+	if err != nil || int64(len(data)) != defaultMaxFileSize {
+		t.Fatalf("default boundary: size=%d, err=%v", len(data), err)
+	}
+
+	writeTestFile(t, path, prefix+strings.Repeat("#", int(defaultMaxFileSize)-len(prefix)+1))
+	_, _, err = New(&Config{Path: path}, &testLogger{}).From(context.Background())
+	if !errors.Is(err, sharedfs.ErrExceedsFileSizeLimit) {
+		t.Fatalf("default limit error = %v", err)
+	}
+
+	_, data, err = New(&Config{Path: path, MaxFileSize: defaultMaxFileSize + 1}, &testLogger{}).From(context.Background())
+	if err != nil || int64(len(data)) != defaultMaxFileSize+1 {
+		t.Fatalf("custom boundary: size=%d, err=%v", len(data), err)
+	}
+
+	_, _, err = New(&Config{Path: path, MaxFileSize: 1}, &testLogger{}).From(context.Background())
+	if !errors.Is(err, sharedfs.ErrExceedsFileSizeLimit) {
+		t.Fatalf("custom limit error = %v", err)
 	}
 }
 

@@ -21,6 +21,8 @@ import (
 //
 // WithStreams allows configuration operation messages to be written to the
 // provided streams.
+//
+// WithMaxFileSize sets the maximum configuration file size in bytes.
 func Load[T any](ctx context.Context, dst *T, opts ...Option) error {
 	c, err := NewController[T](opts...)
 	if err != nil {

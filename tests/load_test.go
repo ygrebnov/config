@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	sharedfs "github.com/ygrebnov/fs"
 	modelerrors "github.com/ygrebnov/model/pkg/errors"
 
 	"github.com/ygrebnov/config"
@@ -101,6 +102,25 @@ func TestLoad_ExplicitPath_CurrentStateFileEnvValidation(t *testing.T) {
 	expectedOut := "loaded configuration, path=" + path
 	if !strings.Contains(logger.out, expectedOut) {
 		t.Fatalf("unexpected out message, got %q, want: %s", logger.out, expectedOut)
+	}
+}
+
+func TestLoad_MaxFileSize(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	writeFile(t, path, "name: abc\n")
+
+	var cfg smallCfg
+	if err := config.Load(context.Background(), &cfg, config.WithPath(path), config.WithMaxFileSize(9)); !errors.Is(err, sharedfs.ErrExceedsFileSizeLimit) {
+		t.Fatalf("Load with small limit = %v", err)
+	}
+	if err := config.Load(context.Background(), &cfg, config.WithPath(path), config.WithMaxFileSize(10)); err != nil {
+		t.Fatalf("Load at limit = %v", err)
+	}
+	if cfg.Name != "abc" {
+		t.Fatalf("Load at limit: name = %q", cfg.Name)
+	}
+	if err := config.Load(context.Background(), &cfg, config.WithMaxFileSize(0)); !errors.Is(err, sharedfs.ErrInvalidFileSizeLimit) {
+		t.Fatalf("Load with zero limit = %v", err)
 	}
 }
 

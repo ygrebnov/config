@@ -11,6 +11,8 @@ import (
 	"syscall"
 	"testing"
 
+	sharedfs "github.com/ygrebnov/fs"
+
 	configerrors "github.com/ygrebnov/config/pkg/errors"
 )
 
@@ -32,7 +34,7 @@ func TestFromRejectsPublicFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, _, err := New(&Config{Path: path}, &testLogger{}).From(context.Background())
-	if !errors.Is(err, configerrors.ErrInsecurePermissions) {
+	if !errors.Is(err, configerrors.ErrInsecurePermissions) || !errors.Is(err, sharedfs.ErrInsecurePermissions) {
 		t.Fatalf("public file error = %v", err)
 	}
 }
@@ -47,7 +49,7 @@ func TestAppPathRejectsPublicDirectory(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, _, err := New(&Config{AppName: "myapp"}, &testLogger{}).From(context.Background())
-	if !errors.Is(err, configerrors.ErrInsecurePermissions) {
+	if !errors.Is(err, configerrors.ErrInsecurePermissions) || !errors.Is(err, sharedfs.ErrInsecurePermissions) {
 		t.Fatalf("public app directory error = %v", err)
 	}
 }

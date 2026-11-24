@@ -100,6 +100,8 @@ created with private permissions; `Save` rejects a symlink in place of an
 existing destination file.
 
 YAML (`.yaml`, `.yml`) and JSON (`.json`) files are supported.
+File reads are limited to 1 MiB by default. Pass `WithMaxFileSize(bytes)` to
+`Load` or `NewController` to set a different positive limit.
 
 ## Environment variables
 

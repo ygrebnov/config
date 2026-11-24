@@ -9,6 +9,7 @@ import (
 	"sync"
 	"testing"
 
+	sharedfs "github.com/ygrebnov/fs"
 	"github.com/ygrebnov/model"
 
 	"github.com/ygrebnov/config"
@@ -103,6 +104,26 @@ func TestNewController_ReturnsParseError(t *testing.T) {
 
 	if _, err := config.NewController[smallCfg](config.WithPath(path)); !errors.Is(err, errors.ErrParse) {
 		t.Fatalf("NewController() error = %v, want ErrParse", err)
+	}
+}
+
+func TestNewController_MaxFileSize(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	writeFile(t, path, "name: abc\n")
+
+	if _, err := config.NewController[smallCfg](config.WithPath(path), config.WithMaxFileSize(9)); !errors.Is(err, sharedfs.ErrExceedsFileSizeLimit) {
+		t.Fatalf("NewController with small limit = %v", err)
+	}
+	controller, err := config.NewController[smallCfg](config.WithPath(path), config.WithMaxFileSize(10))
+	if err != nil {
+		t.Fatalf("NewController at limit = %v", err)
+	}
+	var cfg smallCfg
+	if err := controller.Load(context.Background(), &cfg); err != nil || cfg.Name != "abc" {
+		t.Fatalf("Controller.Load at limit: cfg=%+v, err=%v", cfg, err)
+	}
+	if _, err := config.NewController[smallCfg](config.WithMaxFileSize(-1)); !errors.Is(err, sharedfs.ErrInvalidFileSizeLimit) {
+		t.Fatalf("NewController with negative limit = %v", err)
 	}
 }
 

@@ -160,6 +160,8 @@ func marshalConfigurationFile(path string, obj any) ([]byte, error) {
 // WithLogger allows configuration operation messages to be logged
 // through the provided logger.
 //
+// WithMaxFileSize sets the maximum configuration file size in bytes.
+//
 // NewControllerCtx is the context-aware alternative constructor.
 func NewController[T any](opts ...Option) (*Controller[T], error) {
 	return NewControllerCtx[T](context.Background(), opts...)
@@ -212,9 +214,10 @@ func newControllerCtx[T any](
 	}
 
 	fsCfg := &fsPkg.Config{
-		Path:      cfg.path,
-		EnvPrefix: cfg.envPrefix,
-		AppName:   cfg.appName,
+		Path:        cfg.path,
+		EnvPrefix:   cfg.envPrefix,
+		AppName:     cfg.appName,
+		MaxFileSize: cfg.maxFileSize,
 	}
 
 	loader := fsPkg.New(fsCfg, cfg.logger)

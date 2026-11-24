@@ -32,8 +32,14 @@ test-race:
 	@echo "Running tests with race detector..."
 	@go test ./... -race -count=1 -timeout=600s
 
+.PHONY: cross-compile-windows
+cross-compile-windows:
+	@echo "Cross-compiling tests for Windows..."
+	@GOOS=windows GOARCH=amd64 \
+	  go test ./... -run '^$$' -exec=true
+
 .PHONY: verify
-verify: lint vulncheck test-race
+verify: lint vulncheck test-race cross-compile-windows
 	@echo "All verifications passed successfully."
 
 .PHONY: bench
