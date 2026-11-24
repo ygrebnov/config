@@ -3,5 +3,5 @@
 Run `go mod tidy` with `GOTOOLCHAIN=auto`:
 
 ```bash
-GOTOOLCHAIN=auto go mod tidy
+GOTOOLCHAIN=auto go -C tools mod tidy
 ```

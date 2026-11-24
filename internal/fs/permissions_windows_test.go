@@ -1,13 +1,16 @@
 package fs
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
 	"testing"
 
-	configerrors "github.com/ygrebnov/config/pkg/errors"
+	sharedfs "github.com/ygrebnov/fs"
 	"golang.org/x/sys/windows"
+
+	configerrors "github.com/ygrebnov/config/pkg/errors"
 )
 
 func TestWindowsPrivateAndPublicFileACL(t *testing.T) {
@@ -19,13 +22,17 @@ func TestWindowsPrivateAndPublicFileACL(t *testing.T) {
 	defer file.Close()
 
 	setTestPathACL(t, path, privateACL(t))
-	if err := validatePrivatePermissions(file); err != nil {
+	if err := sharedfs.ValidatePrivateFile(file); err != nil {
 		t.Fatalf("private file rejected: %v", err)
 	}
 
 	setTestPathACL(t, path, privateACL(t)+"(A;;FR;;;WD)")
-	if err := validatePrivatePermissions(file); !errors.Is(err, configerrors.ErrInsecurePermissions) {
+	if err := sharedfs.ValidatePrivateFile(file); !errors.Is(err, sharedfs.ErrInsecurePermissions) {
 		t.Fatalf("Everyone-readable file accepted: %v", err)
+	}
+	_, _, err = New(&Config{Path: path}, &testLogger{}).From(context.Background())
+	if !errors.Is(err, configerrors.ErrInsecurePermissions) || !errors.Is(err, sharedfs.ErrInsecurePermissions) {
+		t.Fatalf("config file permission error = %v", err)
 	}
 }
 
@@ -41,11 +48,11 @@ func TestWindowsPrivateAndPublicDirectoryACL(t *testing.T) {
 	defer root.Close()
 
 	setTestPathACL(t, dir, privateACL(t))
-	if err := validatePrivateDirectoryPermissions(root); err != nil {
+	if err := validateAppRootPermissions(root); err != nil {
 		t.Fatalf("private directory rejected: %v", err)
 	}
 	setTestPathACL(t, dir, privateACL(t)+"(A;;FR;;;BU)")
-	if err := validatePrivateDirectoryPermissions(root); !errors.Is(err, configerrors.ErrInsecurePermissions) {
+	if err := validateAppRootPermissions(root); !errors.Is(err, configerrors.ErrInsecurePermissions) || !errors.Is(err, sharedfs.ErrInsecurePermissions) {
 		t.Fatalf("Users-readable directory accepted: %v", err)
 	}
 }

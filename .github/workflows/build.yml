@@ -10,16 +10,35 @@ permissions:
   contents: read
 
 jobs:
-  lint:
+  dependencies:
+    name: Verify vendored dependencies
     runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.27.x'
+
+      - name: Verify vendor directory
+        run: |
+          go mod vendor
+          git diff --exit-code -- go.mod go.sum vendor/
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+
       - name: Setup Go
-        uses: actions/setup-go@v7.0.0
+        uses: actions/setup-go@v7
         with:
-          go-version: stable
-          check-latest: true
+          go-version: '1.27.x'
+
       - name: Lint
         uses: golangci/golangci-lint-action@v9
         with:
@@ -40,23 +59,49 @@ jobs:
         run: make vulncheck
 
   test:
-    runs-on: ubuntu-latest
+    name: Test (${{ matrix.os }}, Go ${{ matrix.go-version }})
+    runs-on: ${{ matrix.os }}
+
     strategy:
       fail-fast: false
       matrix:
-        go-version: [ 1.25.x, 1.26.x, stable ]
+        include:
+          - os: ubuntu-latest
+            go-version: '1.26.x'
+          - os: ubuntu-latest
+            go-version: '1.27.x'
+          - os: macos-latest
+            go-version: '1.27.x'
+          - os: windows-latest
+            go-version: '1.27.x'
+
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+
       - name: Setup Go
-        uses: actions/setup-go@v7.0.0
+        uses: actions/setup-go@v7
         with:
           go-version: ${{ matrix.go-version }}
-          check-latest: true
+
       - name: Verify dependencies
         run: go mod verify
+
       - name: Test
-        run: make test
+        run: go test ./... -count=1 -timeout=600s
+
+  race:
+    name: Race detector
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: '1.27.x'
+
       - name: Race tests
-        if: matrix.go-version == 'stable'
-        run: make test-race
+        run: go test -race ./... -count=1 -timeout=600s

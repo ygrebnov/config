@@ -2,8 +2,6 @@ package fs
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"io"
 	"os"
@@ -12,6 +10,7 @@ import (
 	"sync"
 
 	"github.com/ygrebnov/errorc"
+	sharedfs "github.com/ygrebnov/fs"
 
 	configerrors "github.com/ygrebnov/config/pkg/errors"
 	configkeys "github.com/ygrebnov/config/pkg/keys"
@@ -36,10 +35,13 @@ func New(cfg *Config, logger log.Logger) *FS {
 }
 
 type Config struct {
-	Path      string
-	EnvPrefix string
-	AppName   string
+	Path        string
+	EnvPrefix   string
+	AppName     string
+	MaxFileSize int64
 }
+
+const defaultMaxFileSize int64 = 1 << 20
 
 func (fs *FS) From(ctx context.Context) (p string, b []byte, e error) {
 	if err := ctx.Err(); err != nil {
@@ -126,25 +128,24 @@ func (fs *FS) fromFile(path string, appPath bool) ([]byte, error) {
 		return nil, errValidateExtension
 	}
 
-	// A nonblocking open prevents a replacement FIFO from hanging the read.
-	file, err := openReadFile(root, name)
+	file, err := sharedfs.OpenRegularReadWithinRoot(root, name)
 	if err != nil {
+		if errors.Is(err, sharedfs.ErrNotRegularFile) {
+			return nil, errorc.With(configerrors.ErrInvalidConfigFilePath, errorc.String(configkeys.Path, path))
+		}
 		return nil, pathError(path, err)
 	}
 	defer file.Close()
 
-	info, err = file.Stat()
-	if err != nil {
-		return nil, pathError(path, err)
-	}
-	if !info.Mode().IsRegular() {
-		return nil, errorc.With(configerrors.ErrInvalidConfigFilePath, errorc.String(configkeys.Path, path))
-	}
-	if errValidatePrivatePermissions := validatePrivatePermissions(file); errValidatePrivatePermissions != nil {
-		return nil, pathError(path, errValidatePrivatePermissions)
+	if errPerm := sharedfs.ValidatePrivateFile(file); errPerm != nil {
+		return nil, pathError(path, configFSError(errPerm))
 	}
 
-	data, err := io.ReadAll(file)
+	maxSize := fs.cfg.MaxFileSize
+	if maxSize == 0 {
+		maxSize = defaultMaxFileSize
+	}
+	data, err := sharedfs.ReadOpenedRegularFile(file, maxSize)
 	if err != nil {
 		return nil, pathError(path, err)
 	}
@@ -201,12 +202,27 @@ func openAppPathParent(dir, name string, create bool) (*os.Root, string, error) 
 	if err != nil {
 		return nil, "", err
 	}
-	if errValidatePrivateDirectoryPermissions :=
-		validatePrivateDirectoryPermissions(appRoot); errValidatePrivateDirectoryPermissions != nil {
+	if errPerm := validateAppRootPermissions(appRoot); errPerm != nil {
 		_ = appRoot.Close()
-		return nil, "", errValidatePrivateDirectoryPermissions
+		return nil, "", errPerm
 	}
 	return appRoot, name, nil
+}
+
+func validateAppRootPermissions(root *os.Root) error {
+	dir, err := root.Open(".")
+	if err != nil {
+		return err
+	}
+	defer dir.Close()
+	return configFSError(sharedfs.ValidatePrivateDirectory(dir))
+}
+
+func configFSError(err error) error {
+	if errors.Is(err, sharedfs.ErrInsecurePermissions) {
+		return errorc.With(configerrors.ErrInsecurePermissions, errorc.Error(configkeys.Cause, err))
+	}
+	return err
 }
 
 func openCustomPathParent(dir, name string) (*os.Root, string, error) {
@@ -268,7 +284,7 @@ func (fs *FS) To(ctx context.Context, path string, data []byte) error {
 		return errValidateExtension
 	}
 
-	tempName, file, err := createTemp(root, filepath.Ext(path))
+	tempName, file, err := sharedfs.CreateTempFileWithinRoot(root, "temp-config-", filepath.Ext(path), 0o600)
 	if err != nil {
 		return errorc.With(
 			configerrors.ErrCreateTempFile,
@@ -278,9 +294,9 @@ func (fs *FS) To(ctx context.Context, path string, data []byte) error {
 	}
 	defer func() { _ = root.Remove(tempName) }()
 
-	if errValidatePrivatePermissions := validatePrivatePermissions(file); errValidatePrivatePermissions != nil {
+	if errPerm := sharedfs.ValidatePrivateFile(file); errPerm != nil {
 		_ = file.Close()
-		return pathError(path, errValidatePrivatePermissions)
+		return pathError(path, configFSError(errPerm))
 	}
 
 	if errWrite := writeToFile(file, data, path); errWrite != nil {
@@ -320,22 +336,6 @@ func validateFile(root *os.Root, name, path string) error {
 	}
 
 	return nil
-}
-
-func createTemp(root *os.Root, ext string) (string, *os.File, error) {
-	for range 10 {
-		random := make([]byte, 12)
-		if _, err := rand.Read(random); err != nil {
-			return "", nil, err
-		}
-		name := "temp-config-" + hex.EncodeToString(random) + ext
-		file, err := root.OpenFile(name, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
-		if errors.Is(err, os.ErrExist) {
-			continue
-		}
-		return name, file, err
-	}
-	return "", nil, os.ErrExist
 }
 
 func writeToFile(file *os.File, data []byte, path string) error {

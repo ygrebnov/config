@@ -1,8 +1,10 @@
 package config
 
 import (
+	"math"
 	"strings"
 
+	sharedfs "github.com/ygrebnov/fs"
 	"github.com/ygrebnov/model"
 
 	"github.com/ygrebnov/config/pkg/log"
@@ -12,11 +14,13 @@ import (
 type Option func(*settings)
 
 type settings struct {
-	path      string
-	appName   string
-	envPrefix string
-	logger    log.Logger
-	rules     []model.Rule
+	path        string
+	appName     string
+	envPrefix   string
+	logger      log.Logger
+	rules       []model.Rule
+	maxFileSize int64
+	optionErr   error
 }
 
 func applyOptions(opts ...Option) (settings, error) {
@@ -31,7 +35,23 @@ func applyOptions(opts ...Option) (settings, error) {
 			opt(&cfg)
 		}
 	}
+	if cfg.optionErr != nil {
+		return settings{}, cfg.optionErr
+	}
 	return cfg, nil
+}
+
+// WithMaxFileSize limits the configuration file read to size bytes.
+// The default is 1 MiB. Size must be positive and less than math.MaxInt64.
+func WithMaxFileSize(size int64) Option {
+	return func(cfg *settings) {
+		if size <= 0 || size == math.MaxInt64 {
+			cfg.optionErr = sharedfs.ErrInvalidFileSizeLimit
+			return
+		}
+		cfg.maxFileSize = size
+		cfg.optionErr = nil
+	}
 }
 
 // WithPath sets an explicit config file path. It takes precedence over env and
